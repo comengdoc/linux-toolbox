@@ -1,32 +1,64 @@
 #!/bin/bash
+
 function module_restore_smart() {
+    
+    # === [增强版] 自动安装 yq 工具 ===
     ensure_yq() {
-        if ! command -v yq &> /dev/null; then
-            echo -e "${YELLOW}>>> 检测到未安装 yq，正在下载轻量级解析器...${NC}"
-            local arch=""
-            case $(uname -m) in
-                x86_64) arch="amd64" ;;
-                aarch64) arch="arm64" ;;
-                armv7l) arch="arm" ;;
-                *) echo -e "${RED}不支持的架构${NC}"; return 1 ;;
-            esac
-            
-            local TARGET_URL="https://github.com/mikefarah/yq/releases/latest/download/yq_linux_${arch}"
-            echo -e "下载源: ${BLUE}${GH_PROXY}${TARGET_URL}${NC}"
-            
-            curl -L "${GH_PROXY}${TARGET_URL}" -o /usr/local/bin/yq
-            chmod +x /usr/local/bin/yq
-            
-            if command -v yq &> /dev/null; then
-                echo -e "${GREEN}✅ yq 安装完成${NC}"
-            else
-                echo -e "${RED}❌ yq 安装失败，请检查网络。${NC}"
-                return 1
-            fi
+        # 1. 检测是否已安装且可用
+        if command -v yq &> /dev/null && yq --version &> /dev/null; then
+            return 0
         fi
+
+        echo -e "${YELLOW}>>> 检测到未安装 yq 或文件损坏，正在下载解析器...${NC}"
+        
+        # 2. 清理可能损坏的旧文件
+        rm -f /usr/local/bin/yq
+
+        # 3. 架构检测
+        local arch=""
+        case $(uname -m) in
+            x86_64) arch="amd64" ;;
+            aarch64) arch="arm64" ;;
+            armv7l) arch="arm" ;;
+            *) echo -e "${RED}不支持的架构: $(uname -m)${NC}"; return 1 ;;
+        esac
+        
+        local FILE_NAME="yq_linux_${arch}"
+        
+        # 4. 定义下载源列表 (优先镜像，失败自动切官方)
+        local URL_LIST=(
+            "https://github.8725206.xyz:16666/https://github.com/mikefarah/yq/releases/latest/download/${FILE_NAME}"
+            "https://ghproxy.com/https://github.com/mikefarah/yq/releases/latest/download/${FILE_NAME}"
+            "https://github.com/mikefarah/yq/releases/latest/download/${FILE_NAME}"
+        )
+
+        for url in "${URL_LIST[@]}"; do
+            echo -e "尝试下载: ${BLUE}$url${NC}"
+            # -L: 跟随重定向, -f: HTTP错误时不写入文件
+            curl -L -f "$url" -o /usr/local/bin/yq
+            
+            if [ -f "/usr/local/bin/yq" ]; then
+                chmod +x /usr/local/bin/yq
+                # 5. 下载后立即验证
+                if /usr/local/bin/yq --version &> /dev/null; then
+                    echo -e "${GREEN}✅ yq 安装/修复成功！${NC}"
+                    return 0
+                else
+                    echo -e "${RED}⚠️ 下载的文件无法运行，尝试下一个源...${NC}"
+                    rm -f /usr/local/bin/yq
+                fi
+            else
+                echo -e "${YELLOW}下载失败 (HTTP Error)，尝试下一个源...${NC}"
+            fi
+        done
+
+        echo -e "${RED}❌ 所有源均下载失败，请检查网络连接。${NC}"
+        return 1
     }
 
     echo -e "${BLUE}=== 智能恢复模式 (Smart Restore v3) ===${NC}"
+    
+    # 调用增强版安装函数
     ensure_yq || return 1
 
     echo "请输入备份文件(.tar.gz) 的绝对路径。"
@@ -39,8 +71,7 @@ function module_restore_smart() {
     ANALYSIS_DIR="/tmp/restore_analysis_$(date +%s)"
     mkdir -p "$ANALYSIS_DIR"
     
-    # [修复 1] 不使用通配符，而是先列出文件表，精确查找 yml 路径
-    # tar -tf 列出内容，grep 找文件，head 取第一个匹配项
+    # 精确查找 yml 路径
     TARGET_YML_PATH=$(tar -tf "$BACKUP_FILE" 2>/dev/null | grep "docker-compose.yml" | head -n 1)
 
     if [ -z "$TARGET_YML_PATH" ]; then
@@ -52,7 +83,7 @@ function module_restore_smart() {
         echo -e "已定位配置文件: ${GREEN}$TARGET_YML_PATH${NC}"
     fi
 
-    # [修复 2] 精准解压该文件 (使用 -xf 自动识别压缩格式)
+    # 解压配置文件用于分析
     tar -xf "$BACKUP_FILE" -C "$ANALYSIS_DIR" "$TARGET_YML_PATH" 2>/dev/null
     
     # 重新定位解压后的本地文件路径
@@ -116,26 +147,21 @@ function module_restore_smart() {
     # 解压所有文件到根目录
     tar -xf "$BACKUP_FILE" -C /
 
-    # [修复 3] 自动权限修复逻辑 (这里就是你想要的自动化)
+    # 自动权限修复逻辑
     echo -e "${BLUE}>>> 正在自动修复文件权限...${NC}"
     if [ -d "/data/docker" ]; then
-        # 强制将 /data/docker 及其子目录的所有者改为 1000:1000
-        # 1000 是绝大多数非 Root 容器 (如 openlist, lucky) 的默认用户 ID
         chown -R 1000:1000 /data/docker
         echo -e "${GREEN}✅ 已自动将 /data/docker 权限修正为 User:1000${NC}"
     fi
 
     echo -e "\n${YELLOW}[3/4] 准备配置...${NC}"
-    # 重新在包里找一次 yml 路径用于覆盖系统配置
-    # 注意：之前解压到了 /tmp/analysis 只是为了看，现在解压到了 / (根目录) 才是真的恢复
-    # 我们直接去解压后的临时目录找，或者尝试从备份包里提取到 /root/docker_manage
     
     mkdir -p /root/docker_manage
-    # 再次提取配置文件到目标目录
+    # 提取配置文件
     tar -xf "$BACKUP_FILE" -C /root/docker_manage "$TARGET_YML_PATH" --strip-components=$(($(echo "$TARGET_YML_PATH" | grep -o "/" | wc -l))) 2>/dev/null
-    # 如果 strip 失败，尝试粗暴复制
+    
+    # 容错处理
     if [ ! -f "/root/docker_manage/docker-compose.yml" ]; then
-         # 尝试从刚才全量解压的路径找 (通常在 /tmp/docker_backup_work_xxxxx/...)
          RESTORED_YML=$(find /tmp -name "docker-compose.yml" | grep "docker_backup_work" | head -n 1)
          if [ -f "$RESTORED_YML" ]; then
              cp "$(dirname "$RESTORED_YML")"/.env /root/docker_manage/.env 2>/dev/null
@@ -145,7 +171,7 @@ function module_restore_smart() {
     
     if [ -f "/root/docker_manage/docker-compose.yml" ]; then
         cd /root/docker_manage
-        # 清理 external 网络标记防止报错
+        # 清理 external 网络标记
         sed -i '/external: true/d' docker-compose.yml; sed -i '/external:/d' docker-compose.yml 
     else
         echo -e "${RED}❌ 警告：配置文件恢复位置异常，但数据已解压。${NC}"
