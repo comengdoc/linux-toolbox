@@ -1,115 +1,95 @@
 #!/bin/bash
 
-# ==============================================================================
-# 模块化加载器 (Loader)
-# ==============================================================================
+# 定义颜色
+Green_font_prefix="\033[32m" && Red_font_prefix="\033[31m" && Green_background_prefix="\033[42;37m" && Red_background_prefix="\033[41;37m" && Font_color_suffix="\033[0m"
+Info="${Green_font_prefix}[信息]${Font_color_suffix}"
+Error="${Red_font_prefix}[错误]${Font_color_suffix}"
+Tip="${Green_font_prefix}[注意]${Font_color_suffix}"
 
-# [配置项] 请将此处修改为你的 GitHub 用户名和仓库名
-REPO_URL="https://raw.githubusercontent.com/comengdoc/linux-toolbox/main"
-CACHE_DIR="/tmp/toolbox_cache"
+# 导入工具类（保持原有逻辑）
+source ./core/utils.sh
 
-mkdir -p "$CACHE_DIR"
-
-# 模块加载函数
-function load_module() {
-    local module_name="$1"
-    local remote_file="${REPO_URL}/core/${module_name}"
-    local local_file="${CACHE_DIR}/${module_name}"
-
-    # 简单的缓存策略：文件存在且大小不为0则直接加载，否则下载
-    # 如果需要强制更新，请运行脚本时带参数: ./main.sh update
-    if [ "$1" != "update" ] && [ -s "$local_file" ]; then
-        source "$local_file"
-    else
-        echo -ne "下载模块: ${module_name} ... "
-        # 尝试使用国内代理下载 (如果主链接失败)
-        if ! curl -s -f -o "$local_file" "$remote_file"; then
-             # 备用下载逻辑 (可选)
-             remote_file="https://ghproxy.net/${remote_file}"
-             if ! curl -s -f -o "$local_file" "$remote_file"; then
-                echo -e "[\033[0;31mFail\033[0m]"
-                return 1
-             fi
-        fi
-        echo -e "[\033[0;32mOK\033[0m]"
-        chmod +x "$local_file"
-        source "$local_file"
-    fi
+# 检查Root权限
+check_root(){
+	[[ $EUID != 0 ]] && echo -e "${Error} 当前非ROOT账号(或没有ROOT权限)，无法继续操作，请更换ROOT账号或使用 sudo su 后重试。" && exit 1
 }
 
-# 如果第一个参数是 update，清空缓存
-if [ "$1" == "update" ]; then
-    rm -rf "$CACHE_DIR"
-    echo "缓存已清理，准备更新..."
-fi
+# 新增功能：设置快捷键 box
+set_shortcut(){
+    local current_path=$(readlink -f "$0")
+    ln -sf "$current_path" /usr/bin/box
+    chmod +x "$current_path"
+    echo -e "${Info} 快捷键设置成功！"
+    echo -e "${Info} 您现在可以在终端任意位置输入 ${Green_font_prefix}box${Font_color_suffix} 来启动本工具。"
+    read -p " 按回车键返回主菜单..."
+}
 
-# ==================== 加载核心模块 ====================
-load_module "utils.sh"
+# 主菜单显示
+show_menu(){
+	clear
+	echo -e "
+  ${Green_font_prefix}Linux Toolbox 一键脚本工具箱${Font_color_suffix}
+  
+  ${Green_font_prefix}1.${Font_color_suffix} 系统信息监控 (System Monitor)
+  ${Green_font_prefix}2.${Font_color_suffix} Docker 安装与管理 (Docker Manager)
+  ${Green_font_prefix}3.${Font_color_suffix} Docker 容器清理 (Docker Clean)
+  ${Green_font_prefix}4.${Font_color_suffix} 网络管理 (Network Manager)
+  ${Green_font_prefix}5.${Font_color_suffix} 系统备份 (Backup System)
+  ${Green_font_prefix}6.${Font_color_suffix} 系统还原 (Restore System)
+  ${Green_font_prefix}7.${Font_color_suffix} 磁盘挂载/清理 (Disk Tools)
+  ${Green_font_prefix}8.${Font_color_suffix} LED控制 (LED Control)
+  
+  ${Green_font_prefix}9. 设置快捷键 box 启动本程序${Font_color_suffix}
+  
+  ${Green_font_prefix}0.${Font_color_suffix} 退出脚本
+ "
+}
 
-# 检查权限
-check_root
-
-# 加载所有功能模块
-load_module "docker_install.sh"
-load_module "mihomo.sh"
-load_module "bbr.sh"
-load_module "network.sh"
-load_module "led.sh"
-load_module "docker_image.sh"
-load_module "backup.sh"
-load_module "restore.sh"
-load_module "docker_clean.sh"
-load_module "1panel.sh"
-load_module "disk.sh"
-load_module "monitor.sh"
-load_module "mount_clean.sh"
-
-# 启动代理配置 (来自 utils.sh)
-configure_proxy
-
-# ==================== 主菜单循环 ====================
-while true; do
-    clear
-    echo -e "${BLUE}====================================================${NC}"
-    echo -e "       🛠️  Armbian/Docker 模块化工具箱 (Online v2.0)"
-    echo -e "${BLUE}====================================================${NC}"
-    echo -e " ${GREEN}1.${NC} 安装/管理 Docker"
-    echo -e " ${GREEN}2.${NC} 安装 Mihomo/Clash"
-    echo -e " ${GREEN}3.${NC} BBR 加速管理"
-    echo -e " ${GREEN}4.${NC} 网络/IP设置"
-    echo -e " ${GREEN}5.${NC} R5C LED 修复"
-    echo -e "${BLUE}----------------------------------------------------${NC}"
-    echo -e " ${YELLOW}6.${NC} Docker 镜像备份/恢复"
-    echo -e " ${YELLOW}7.${NC} 容器智能备份"
-    echo -e " ${YELLOW}8.${NC} 容器智能恢复"
-    echo -e " ${RED}9.${NC} 彻底清理 Docker"
-    echo -e "${BLUE}----------------------------------------------------${NC}"
-    echo -e " ${GREEN}10.${NC} 安装 1Panel 面板"
-    echo -e " ${GREEN}11.${NC} 磁盘/分区管理"
-    echo -e " ${GREEN}12.${NC} 网卡流量监控"
-    echo -e " ${RED}13.${NC} Docker 挂载清理"
-    echo -e " ${GREEN}0.${NC} 退出脚本"
-    echo
-    read -p "请输入选项 [0-13]: " choice
-
-    case "$choice" in
-        1) module_docker_install ;;
-        2) module_mihomo ;;
-        3) module_bbr ;;
-        4) module_netmgr ;;
-        5) module_led_fix ;;
-        6) module_docker_image_tool ;;
-        7) module_backup ;;
-        8) module_restore_smart ;;
-        9) module_clean_docker ;;
-        10) module_1panel ;;
-        11) module_disk_manager ;;
-        12) module_nic_monitor ;;
-        13) module_mount_cleaner ;;
-        0) echo "再见！"; exit 0 ;;
-        *) echo "无效选项。" ;;
+# 菜单逻辑处理
+start_menu(){
+    check_root
+    show_menu
+    read -p " 请输入数字 [0-9]:" num
+    case "$num" in
+        1)
+            bash ./core/system_monitor.sh
+            ;;
+        2)
+            bash ./core/docker_install.sh
+            ;;
+        3)
+            bash ./core/docker_clean.sh
+            ;;
+        4)
+            bash ./core/network.sh
+            ;;
+        5)
+            bash ./core/backup.sh
+            ;;
+        6)
+            bash ./core/restore.sh
+            ;;
+        7)
+            bash ./core/disk.sh
+            ;;
+        8)
+            bash ./core/led.sh
+            ;;
+        9)
+            set_shortcut  # 调用新增的快捷键函数
+            start_menu
+            ;;
+        0)
+            exit 1
+            ;;
+        *)
+            clear
+            echo -e "${Error}:请输入正确数字 [0-9]"
+            sleep 2s
+            start_menu
+            ;;
     esac
-    
-    echo
-    read -p "按回车键返回主菜单..."
-done
+}
+
+# 启动主程序
+start_menu
