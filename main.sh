@@ -67,20 +67,43 @@ load_module "mount_clean.sh"
 # 启动代理配置 (来自 utils.sh)
 configure_proxy
 
-# ==================== 新增功能函数 ====================
-function set_shortcut() {
-    # 1. 定义一个固定的安装路径，而不是依赖临时路径
+# ==================== 快捷键管理函数 ====================
+function manage_shortcut() {
     local install_path="/usr/local/bin/linux-toolbox"
-    
-    # 2. 拼接下载地址 (利用脚本开头的 REPO_URL 变量)
     local download_url="${REPO_URL}/main.sh" 
 
-    echo -e "正在将脚本安装到系统目录: ${install_path} ..."
+    echo -e "${BLUE}=== 快捷键管理 ===${NC}"
+    echo "1. 设置/更新 快捷键"
+    echo "2. 删除 快捷键"
+    echo "0. 返回"
+    read -p "请选择: " action
+
+    if [ "$action" == "2" ]; then
+        read -p "请输入要删除的指令名称 (默认: box): " del_name
+        local link_name=${del_name:-box}
+        if [ -f "/usr/bin/${link_name}" ]; then
+            rm -f "/usr/bin/${link_name}"
+            echo -e "${GREEN}✅ 快捷键 '${link_name}' 已删除。${NC}"
+        else
+            echo -e "${RED}❌ 未找到快捷键 '${link_name}'。${NC}"
+        fi
+        return
+    elif [ "$action" != "1" ]; then
+        return
+    fi
+
+    # === 下面是设置逻辑 ===
     
-    # 3. 重新下载脚本到固定位置
+    # 1. 让用户自定义名称
+    read -p "请输入自定义快捷指令名称 (回车默认: box): " input_name
+    local link_name=${input_name:-box}
+
+    echo -e "正在下载最新脚本到: ${install_path} ..."
+    
+    # 2. 下载脚本 (带重试机制)
     # 尝试直接下载
     if ! curl -s -f -o "$install_path" "$download_url"; then
-         # 如果失败，尝试使用代理 (与 load_module 逻辑保持一致)
+         # 如果失败，尝试使用代理
          echo -e "${YELLOW}下载失败，尝试使用加速镜像...${NC}"
          if ! curl -s -f -o "$install_path" "https://ghproxy.net/${download_url}"; then
             echo -e "${RED}❌ 安装失败：无法下载脚本文件。请检查网络。${NC}"
@@ -88,12 +111,24 @@ function set_shortcut() {
          fi
     fi
 
-    # 4. 赋予权限并创建软连接
+    # 3. 赋予权限
     chmod +x "$install_path"
-    ln -sf "$install_path" /usr/bin/box
 
-    echo -e "${GREEN}✅ 快捷键设置成功!${NC}"
-    echo -e "以后在终端任何位置输入 ${YELLOW}box${NC} 即可启动本工具。"
+    # 4. 创建软连接 (支持自定义名称)
+    ln -sf "$install_path" "/usr/bin/${link_name}"
+
+    echo -e "${GREEN}✅ 设置成功!${NC}"
+    echo -e "以后在终端输入 ${YELLOW}${link_name}${NC} 即可启动本工具。"
+    
+    # 5. 提示用户是否删除旧的 box (如果改名了)
+    if [ "$link_name" != "box" ] && [ -f "/usr/bin/box" ]; then
+        echo
+        read -p "检测到旧的 'box' 指令存在，是否删除? [y/n]: " del_old
+        if [[ "$del_old" == "y" ]]; then
+            rm -f /usr/bin/box
+            echo -e "${GREEN}旧指令 'box' 已删除。${NC}"
+        fi
+    fi
 }
 
 # ==================== 主菜单循环 ====================
@@ -118,7 +153,7 @@ while true; do
     echo -e " ${GREEN}12.${NC} 网卡流量监控"
     echo -e " ${RED}13.${NC} Docker 挂载清理"
     echo -e "${BLUE}----------------------------------------------------${NC}"
-    echo -e " ${GREEN}14.${NC} 设置快捷键 (box启动)"
+    echo -e " ${GREEN}14.${NC} 管理快捷键 (安装/删除/改名)"
     echo -e " ${GREEN}0.${NC} 退出脚本"
     echo
     read -p "请输入选项 [0-14]: " choice
@@ -137,7 +172,7 @@ while true; do
         11) module_disk_manager ;;
         12) module_nic_monitor ;;
         13) module_mount_cleaner ;;
-        14) set_shortcut ;;
+        14) manage_shortcut ;;
         0) echo "再见！"; exit 0 ;;
         *) echo "无效选项。" ;;
     esac
