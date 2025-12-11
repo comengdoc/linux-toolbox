@@ -69,9 +69,29 @@ configure_proxy
 
 # ==================== 新增功能函数 ====================
 function set_shortcut() {
-    local current_path=$(readlink -f "$0")
-    ln -sf "$current_path" /usr/bin/box
-    chmod +x "$current_path"
+    # 1. 定义一个固定的安装路径，而不是依赖临时路径
+    local install_path="/usr/local/bin/linux-toolbox"
+    
+    # 2. 拼接下载地址 (利用脚本开头的 REPO_URL 变量)
+    local download_url="${REPO_URL}/main.sh" 
+
+    echo -e "正在将脚本安装到系统目录: ${install_path} ..."
+    
+    # 3. 重新下载脚本到固定位置
+    # 尝试直接下载
+    if ! curl -s -f -o "$install_path" "$download_url"; then
+         # 如果失败，尝试使用代理 (与 load_module 逻辑保持一致)
+         echo -e "${YELLOW}下载失败，尝试使用加速镜像...${NC}"
+         if ! curl -s -f -o "$install_path" "https://ghproxy.net/${download_url}"; then
+            echo -e "${RED}❌ 安装失败：无法下载脚本文件。请检查网络。${NC}"
+            return 1
+         fi
+    fi
+
+    # 4. 赋予权限并创建软连接
+    chmod +x "$install_path"
+    ln -sf "$install_path" /usr/bin/box
+
     echo -e "${GREEN}✅ 快捷键设置成功!${NC}"
     echo -e "以后在终端任何位置输入 ${YELLOW}box${NC} 即可启动本工具。"
 }
