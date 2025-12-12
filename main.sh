@@ -1,106 +1,119 @@
 #!/bin/bash
 
 # ==============================================================================
-# 模块化加载器 (Loader) - 增强修复版
+# 模块化加载器 (Loader) - 强力调试版
 # ==============================================================================
 
 # [配置项] 你的 GitHub 用户名和仓库名
 REPO_URL="https://raw.githubusercontent.com/comengdoc/linux-toolbox/main"
-# 对应的 Git 仓库地址 (用于下载文件夹)
+# 对应的 Git 仓库地址
 GIT_REPO_URL="https://github.com/comengdoc/linux-toolbox"
 
 CACHE_DIR="/tmp/toolbox_cache"
 mkdir -p "$CACHE_DIR"
 
 # ==================== [核心修改] 文件夹同步函数 ====================
-function sync_mihomo_folder() {
-    # 设定目标路径为 /tmp/mihomo
+# 去掉 function 关键字，提高兼容性
+sync_mihomo_folder() {
+    # 设定目标路径
     local target_dir="/tmp/mihomo"
     local temp_git_dir="/tmp/toolbox_git_temp"
     
-    echo -e "----------------------------------------"
-    echo -e "🚀 正在同步 mihomo 资源..."
+    echo -e "\n========================================"
+    echo -e "🚀 [DEBUG模式] 开始同步 mihomo 资源..."
+    echo -e "========================================"
 
     # 1. 环境清理
     rm -rf "$target_dir"
     rm -rf "$temp_git_dir"
 
-    # 2. 检查 Git (如果缺失则安装)
+    # 2. 强制检查并安装 Git
+    echo "Checking Git..."
     if ! command -v git &> /dev/null; then
-        echo -ne "正在安装 git 环境... "
+        echo "⚠️  未检测到 Git，正在尝试安装..."
         if [ -f /etc/openwrt_release ]; then
-            opkg update >/dev/null 2>&1 && opkg install git-http >/dev/null 2>&1
+            opkg update && opkg install git-http
         elif [ -f /etc/debian_version ]; then
-            apt-get update >/dev/null 2>&1 && apt-get install -y git >/dev/null 2>&1
+            apt-get update && apt-get install -y git
         else
-            yum install -y git >/dev/null 2>&1 || apk add git >/dev/null 2>&1
+            yum install -y git || apk add git
         fi
-        echo "完成"
+    else
+        echo "✅ Git 已安装: $(git --version)"
     fi
 
-    # 3. 开始克隆 (移除 >/dev/null 以显示真实错误，方便调试)
-    echo -e "📡 正在尝试从 GitHub 拉取配置..."
+    # 3. 开始克隆 (开启指令回显 set -x，确保你能看到哪里卡住了)
+    echo -e "📡 正在尝试下载..."
     
-    # 尝试直连 (关闭 SSL 验证防止老旧设备证书报错)
+    # 临时开启调试模式，屏幕会打印执行的每一行命令
+    # set -x 
+    
+    # 尝试直连 (带进度条 --progress 和 详细信息 --verbose)
     export GIT_SSL_NO_VERIFY=1
     
-    # 优先尝试直连
-    if git clone --depth 1 "$GIT_REPO_URL" "$temp_git_dir"; then
-        echo -e "✅ 直连下载成功"
+    if git clone --depth 1 --progress --verbose "$GIT_REPO_URL" "$temp_git_dir"; then
+        echo -e "\n✅ Git 直连下载成功！"
     else
-        echo -e "⚠️ 直连失败，尝试使用 Ghproxy 代理..."
-        # 尝试代理
-        if git clone --depth 1 "https://ghproxy.net/${GIT_REPO_URL}" "$temp_git_dir"; then
-            echo -e "✅ 代理下载成功"
+        echo -e "\n⚠️ 直连失败，正在尝试 Ghproxy 代理..."
+        if git clone --depth 1 --progress --verbose "https://ghproxy.net/${GIT_REPO_URL}" "$temp_git_dir"; then
+            echo -e "\n✅ 代理下载成功！"
         else
-            echo -e "❌ 严重错误：无法连接到 GitHub！"
-            echo -e "可能原因：网络问题 / 仓库地址错误 / 仓库是私有的"
-            rm -rf "$temp_git_dir"
-            # 这里不退出脚本，以免影响后续菜单显示，但会打印错误
-            return 1 
+            echo -e "\n❌ [严重错误] 无法连接到 GitHub。"
+            echo "请检查你的网络设置或 DNS。"
+            # set +x
+            return 1
         fi
     fi
+    # 关闭调试模式
+    # set +x
 
-    # 4. 提取文件并部署
+    # 4. 暴力检查下载结果
+    echo -e "\n🔍 检查下载内容..."
+    if [ -d "$temp_git_dir" ]; then
+        echo "--------------------------------"
+        ls -F "$temp_git_dir"
+        echo "--------------------------------"
+    else
+        echo "❌ 临时目录不存在，下载彻底失败。"
+        return 1
+    fi
+
+    # 5. 提取并部署
     if [ -d "$temp_git_dir/mihomo" ]; then
-        echo "📦 发现 mihomo 文件夹，正在部署到 $target_dir ..."
+        echo "📦 发现 mihomo 文件夹，正在移动..."
         
         mkdir -p "$target_dir"
-        # 使用 cp -rf 强制复制，比 mv 更稳定
         cp -rf "$temp_git_dir/mihomo/." "$target_dir/"
         chmod -R 755 "$target_dir"
         
         echo -e "🎉 同步完成！"
-        # 打印一下文件列表证明下载成功了
-        echo "当前 /tmp/mihomo 内容："
-        ls -F "$target_dir" | head -n 5
+        echo "当前 /tmp/mihomo 下的文件："
+        ls -lh "$target_dir"
     else
-        echo -e "❌ 错误：仓库下载成功，但其中没有找到 'mihomo' 文件夹！"
-        echo -e "请检查 GitHub 仓库根目录下是否存在该文件夹（注意大小写）。"
+        echo -e "❌ 错误：Git下载成功，但仓库里没有 'mihomo' 文件夹！"
+        echo "你仓库里的文件列表如下 (请截图给我):"
+        ls -F "$temp_git_dir"
     fi
 
-    # 5. 清理临时仓库
+    # 6. 清理
     rm -rf "$temp_git_dir"
-    echo -e "----------------------------------------"
+    echo -e "========================================\n"
 }
 
-# === 立即执行文件夹同步 (在加载菜单前执行) ===
+# === 立即执行 (确保这行代码没有被注释) ===
 sync_mihomo_folder
 
-# ==================== 模块加载函数 (保持不变) ====================
-function load_module() {
+# ==================== 模块加载函数 ====================
+load_module() {
     local module_name="$1"
     local remote_file="${REPO_URL}/core/${module_name}"
     local local_file="${CACHE_DIR}/${module_name}"
 
-    # 简单的缓存策略：文件存在且大小不为0则直接加载
     if [ "$1" != "update" ] && [ -s "$local_file" ]; then
         source "$local_file"
     else
         echo -ne "下载模块: ${module_name} ... "
-        # 尝试直连下载
         if ! curl -s -f -o "$local_file" "$remote_file"; then
-             # 备用：代理下载
              remote_file="https://ghproxy.net/${remote_file}"
              if ! curl -s -f -o "$local_file" "$remote_file"; then
                 echo -e "[\033[0;31mFail\033[0m]"
@@ -113,19 +126,16 @@ function load_module() {
     fi
 }
 
-# 如果第一个参数是 update，清空缓存
 if [ "$1" == "update" ]; then
     rm -rf "$CACHE_DIR"
-    echo "缓存已清理，准备更新..."
+    echo "缓存已清理..."
 fi
 
 # ==================== 加载核心模块 ====================
 load_module "utils.sh"
 
-# 检查权限
 check_root
 
-# 加载所有功能模块
 load_module "docker_install.sh"
 load_module "mihomo.sh"
 load_module "bbr.sh"
@@ -140,11 +150,10 @@ load_module "disk.sh"
 load_module "monitor.sh"
 load_module "mount_clean.sh"
 
-# 启动代理配置 (来自 utils.sh)
 configure_proxy
 
 # ==================== 快捷键管理函数 ====================
-function manage_shortcut() {
+manage_shortcut() {
     local install_path="/usr/local/bin/linux-toolbox"
     local download_url="${REPO_URL}/main.sh" 
     local current_user_home="$HOME"
@@ -155,14 +164,13 @@ function manage_shortcut() {
     echo "0. 返回"
     read -p "请选择: " action
 
-    function remove_command() {
+    remove_command() {
         local name=$1
         rm -f "/usr/bin/${name}"
         rm -f "/usr/local/bin/${name}"
         if [ -f "${current_user_home}/.bashrc" ]; then
             if grep -q "alias ${name}=" "${current_user_home}/.bashrc"; then
                 sed -i "/alias ${name}=/d" "${current_user_home}/.bashrc"
-                echo -e "${YELLOW}已清理 .bashrc 中的别名: ${name}${NC}"
             fi
         fi
         unalias "${name}" 2>/dev/null
@@ -182,12 +190,11 @@ function manage_shortcut() {
     read -p "请输入自定义快捷指令名称 (回车默认: box): " input_name
     local link_name=${input_name:-box}
 
-    echo -e "正在下载最新脚本到: ${install_path} ..."
+    echo -e "正在下载最新脚本..."
     
     if ! curl -s -f -o "$install_path" "$download_url"; then
-         echo -e "${YELLOW}下载失败，尝试使用加速镜像...${NC}"
          if ! curl -s -f -o "$install_path" "https://ghproxy.net/${download_url}"; then
-            echo -e "${RED}❌ 安装失败：无法下载脚本文件。${NC}"
+            echo -e "${RED}❌ 下载失败。${NC}"
             return 1
          fi
     fi
@@ -197,26 +204,22 @@ function manage_shortcut() {
     ln -sf "$install_path" "/usr/bin/${link_name}"
 
     echo -e "${GREEN}✅ 设置成功!${NC}"
-    echo -e "以后在终端输入 ${YELLOW}${link_name}${NC} 即可启动本工具。"
+    echo -e "输入 ${YELLOW}${link_name}${NC} 即可启动。"
     
     if [ "$link_name" != "box" ]; then
-        if grep -q "alias box=" "${current_user_home}/.bashrc" 2>/dev/null || [ -f "/usr/bin/box" ] || [ -f "/usr/local/bin/box" ]; then
-            echo
-            read -p "检测到旧的 'box' 指令存在，是否删除? [y/n]: " del_old
-            if [[ "$del_old" == "y" ]]; then
-                remove_command "box"
-                echo -e "${GREEN}旧指令 'box' 已删除。${NC}"
-            fi
+        if grep -q "alias box=" "${current_user_home}/.bashrc" 2>/dev/null || [ -f "/usr/bin/box" ]; then
+            read -p "检测到旧的 'box' 指令，删除? [y/n]: " del_old
+            [[ "$del_old" == "y" ]] && remove_command "box"
         fi
     fi
     hash -r 
 }
 
-# ==================== 主菜单循环 ====================
+# ==================== 主菜单 ====================
 while true; do
     clear
     echo -e "${BLUE}====================================================${NC}"
-    echo -e "       🛠️  Armbian/Docker 模块化工具箱 (Online v2.1)"
+    echo -e "       🛠️  Armbian/Docker 工具箱 (Debug v2.2)"
     echo -e "${BLUE}====================================================${NC}"
     echo -e " ${GREEN}1.${NC} 安装/管理 Docker"
     echo -e " ${GREEN}2.${NC} 安装 Mihomo/Clash"
@@ -234,8 +237,8 @@ while true; do
     echo -e " ${GREEN}12.${NC} 网卡流量监控"
     echo -e " ${RED}13.${NC} Docker 挂载清理"
     echo -e "${BLUE}----------------------------------------------------${NC}"
-    echo -e " ${GREEN}14.${NC} 管理快捷键 (安装/删除/改名)"
-    echo -e " ${GREEN}0.${NC} 退出脚本"
+    echo -e " ${GREEN}14.${NC} 管理快捷键"
+    echo -e " ${GREEN}0.${NC} 退出"
     echo
     read -p "请输入选项 [0-14]: " choice
 
@@ -254,7 +257,7 @@ while true; do
         12) module_nic_monitor ;;
         13) module_mount_cleaner ;;
         14) manage_shortcut ;;
-        0) echo "再见！"; exit 0 ;;
+        0) exit 0 ;;
         *) echo "无效选项。" ;;
     esac
     
