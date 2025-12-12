@@ -1,23 +1,46 @@
 #!/bin/bash
-function module_mihomo() {
-    SRC_DIR="/root/mihomo"
 
+function module_mihomo() {
+    # 定义两个源目录：
+    # 1. 自动下载目录 (优先级高)
+    AUTO_DIR="/tmp/mihomo"
+    # 2. 手动上传目录 (备用)
+    MANUAL_DIR="/root/mihomo"
+    
+    # 最终配置文件安装位置
+    CONF_DIR="/etc/mihomo"
+    BIN_PATH="/usr/local/bin/mihomo"
+
+    # ==================== 服务配置函数 ====================
     setup_service() {
         echo -e "${BLUE}>>> 配置 Systemd 服务...${NC}"
-        mkdir -p /etc/mihomo
+        mkdir -p "$CONF_DIR"
         
-        if [ ! -f "/etc/mihomo/config.yaml" ]; then
-             if [ -f "$SRC_DIR/config.yaml" ]; then
-                 cp "$SRC_DIR/config.yaml" /etc/mihomo/config.yaml
-                 echo -e "${GREEN}✅ 已复制本地 config.yaml${NC}"
+        # 1. 处理配置文件 (config.yaml)
+        if [ ! -f "$CONF_DIR/config.yaml" ]; then
+             # 优先从 /tmp/mihomo 找
+             if [ -f "$AUTO_DIR/config.yaml" ]; then
+                 cp "$AUTO_DIR/config.yaml" "$CONF_DIR/config.yaml"
+                 echo -e "${GREEN}✅ 已应用仓库中的 config.yaml${NC}"
+             # 其次从 /root/mihomo 找
+             elif [ -f "$MANUAL_DIR/config.yaml" ]; then
+                 cp "$MANUAL_DIR/config.yaml" "$CONF_DIR/config.yaml"
+                 echo -e "${GREEN}✅ 已应用本地 config.yaml${NC}"
              else
-                 echo -e "${YELLOW}⚠️ 未检测到配置文件，正在生成默认空配置...${NC}"
-                 touch /etc/mihomo/config.yaml
-                 echo -e "${RED}⚠️ 请注意：你需要自行编辑 /etc/mihomo/config.yaml 填入订阅信息！${NC}"
+                 echo -e "${YELLOW}⚠️ 未检测到配置文件，生成空配置...${NC}"
+                 touch "$CONF_DIR/config.yaml"
+                 echo -e "${RED}⚠️ 请注意：你需要自行编辑 $CONF_DIR/config.yaml 填入订阅信息！${NC}"
              fi
         fi
 
-        cat > /etc/systemd/system/mihomo.service <<EOF
+        # 2. 处理服务文件 (mihomo.service)
+        # 如果仓库里自带了 service 文件，直接用仓库的，这样你可以在 GitHub 上自定义启动参数
+        if [ -f "$AUTO_DIR/mihomo.service" ]; then
+            cp "$AUTO_DIR/mihomo.service" /etc/systemd/system/mihomo.service
+            echo -e "${GREEN}✅ 已应用仓库中的 mihomo.service 服务配置${NC}"
+        else
+            # 否则生成默认的标准配置
+            cat > /etc/systemd/system/mihomo.service <<EOF
 [Unit]
 Description=Mihomo Daemon
 After=network.target
@@ -25,18 +48,22 @@ After=network.target
 [Service]
 Type=simple
 Restart=always
-ExecStart=/usr/local/bin/mihomo -d /etc/mihomo
+ExecStart=$BIN_PATH -d $CONF_DIR
 User=root
 LimitNOFILE=524288
 
 [Install]
 WantedBy=multi-user.target
 EOF
+            echo -e "${GREEN}✅ 已生成默认服务配置${NC}"
+        fi
+
         systemctl daemon-reload
         systemctl enable mihomo
         echo -e "${GREEN}✅ 服务配置完成${NC}"
     }
 
+    # ==================== 在线下载安装 ====================
     install_online() {
         echo -e "${BLUE}>>> 正在检测系统架构...${NC}"
         local ARCH=$(uname -m)
@@ -52,55 +79,82 @@ EOF
         LATEST_VER=$(curl -s -m 5 https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         
         if [ -z "$LATEST_VER" ]; then
-            echo -e "${YELLOW}⚠️ 无法自动获取最新版本 (API连接超时)${NC}"
-            read -p "请输入欲安装的版本号 (例如 v1.18.5): " LATEST_VER
+            read -p "获取失败，请输入欲安装的版本号 (例如 v1.18.5): " LATEST_VER
             if [ -z "$LATEST_VER" ]; then echo "❌ 未输入版本号"; return 1; fi
         fi
         
+        # 使用 ghproxy 加速下载
         TARGET_URL="https://github.com/MetaCubeX/mihomo/releases/download/${LATEST_VER}/mihomo-linux-${MIHOMO_ARCH}-${LATEST_VER}.gz"
-        PROXY_URL="${GH_PROXY}${TARGET_URL}"
+        PROXY_URL="https://ghproxy.net/${TARGET_URL}"
         
-        echo -e "目标版本: ${GREEN}${LATEST_VER}${NC}"
-        echo -e "下载源: ${BLUE}${PROXY_URL}${NC}"
-        echo -e "${YELLOW}>>> 开始下载...${NC}"
-        
+        echo -e "正在下载: ${GREEN}${PROXY_URL}${NC}"
         rm -f /tmp/mihomo.gz
         curl -L -o /tmp/mihomo.gz "$PROXY_URL" --progress-bar
 
         if [ ! -s /tmp/mihomo.gz ]; then
-            echo -e "${RED}❌ 下载失败或文件为空。请检查加速代理是否可用。${NC}"
+            echo -e "${RED}❌ 下载失败。${NC}"
             return 1
         fi
 
-        echo -e "${YELLOW}>>> 安装中...${NC}"
         gzip -d /tmp/mihomo.gz
-        mv /tmp/mihomo /usr/local/bin/mihomo
-        chmod 755 /usr/local/bin/mihomo
+        mv /tmp/mihomo "$BIN_PATH"
+        chmod 755 "$BIN_PATH"
         
-        echo -e "${GREEN}✅ Mihomo 已安装到 /usr/local/bin/mihomo${NC}"
-        /usr/local/bin/mihomo -v
+        echo -e "${GREEN}✅ Mihomo 已在线安装完毕${NC}"
         setup_service
     }
 
-    install_manual() {
-        echo -e "${GREEN}=== 手动离线安装模式 ===${NC}"
-        echo -e "请确保你已将相关文件上传至目录: ${YELLOW}$SRC_DIR${NC}"
-        mkdir -p "$SRC_DIR"
-        read -p "文件准备好后，按回车继续..."
+    # ==================== 仓库/本地安装 (核心修改) ====================
+    install_local() {
+        echo -e "${GREEN}=== 仓库/本地 部署模式 ===${NC}"
+        
+        local SOURCE_FILE=""
 
-        if [ -f "$SRC_DIR/mihomo.gz" ]; then
-            gzip -d -k "$SRC_DIR/mihomo.gz" > /dev/null 2>&1
+        # 1. 优先检查 main.sh 刚刚自动下载的目录 (/tmp/mihomo)
+        if [ -f "$AUTO_DIR/mihomo" ]; then
+            echo -e "${GREEN}🎉 检测到 GitHub 仓库文件已自动下载 (/tmp/mihomo)${NC}"
+            SOURCE_FILE="$AUTO_DIR/mihomo"
+        
+        # 2. 其次检查用户手动上传目录 (/root/mihomo)
+        elif [ -f "$MANUAL_DIR/mihomo" ]; then
+             echo -e "${YELLOW}检测到 /root/mihomo 下存在手动上传的文件${NC}"
+             SOURCE_FILE="$MANUAL_DIR/mihomo"
+        
+        # 3. 都没有，提示用户
+        else
+            echo -e "${RED}❌ 未检测到安装文件！${NC}"
+            echo "请选择："
+            echo "1. 我现在去把文件上传到 $MANUAL_DIR，然后按回车"
+            echo "2. 放弃"
+            read -p "选择: " choice
+            if [ "$choice" == "1" ]; then
+                mkdir -p "$MANUAL_DIR"
+                read -p "上传完成后，请按回车继续..."
+                if [ -f "$MANUAL_DIR/mihomo" ]; then
+                    SOURCE_FILE="$MANUAL_DIR/mihomo"
+                else
+                    echo -e "${RED}还是没找到，退出。${NC}"
+                    return 1
+                fi
+            else
+                return 1
+            fi
         fi
 
-        if [ -f "$SRC_DIR/mihomo" ]; then
-            cp "$SRC_DIR/mihomo" /usr/local/bin/mihomo
-            chmod 755 /usr/local/bin/mihomo
-            echo -e "${GREEN}✅ 二进制文件安装成功${NC}"
-            /usr/local/bin/mihomo -v
+        # 开始安装二进制文件
+        echo -e "正在安装核心文件..."
+        cp "$SOURCE_FILE" "$BIN_PATH"
+        chmod 755 "$BIN_PATH"
+        
+        # 验证
+        if "$BIN_PATH" -v >/dev/null 2>&1; then
+            echo -e "${GREEN}✅ 核心文件安装成功: $("$BIN_PATH" -v)${NC}"
         else
-            echo -e "${RED}❌ 未找到 mihomo 二进制文件${NC}"
+            echo -e "${RED}❌ 安装的文件似乎无法运行 (可能是架构不对或文件损坏)${NC}"
             return 1
         fi
+
+        # 配置服务和配置文件
         setup_service
     }
 
@@ -109,47 +163,26 @@ EOF
         read -p "确认要卸载吗？(y/N): " confirm
         if [[ ! "$confirm" =~ ^[Yy]$ ]]; then echo "已取消"; return; fi
 
-        if systemctl is-active --quiet mihomo; then
-            echo "停止服务..."
-            systemctl stop mihomo
-            systemctl disable mihomo
-        fi
+        systemctl stop mihomo 2>/dev/null
+        systemctl disable mihomo 2>/dev/null
+        rm -f "$BIN_PATH"
+        rm -f /etc/systemd/system/mihomo.service
+        systemctl daemon-reload
 
-        if [ -f "/usr/local/bin/mihomo" ]; then
-            rm -f /usr/local/bin/mihomo
-            echo "核心已删除。"
-        fi
-
-        if [ -f "/etc/systemd/system/mihomo.service" ]; then
-            rm -f /etc/systemd/system/mihomo.service
-            systemctl daemon-reload
-            echo "服务文件已清理。"
-        fi
-
-        if [ -d "/etc/mihomo" ]; then
-            echo -e "${YELLOW}检测到配置文件目录 (/etc/mihomo)${NC}"
-            read -p "是否保留配置文件(订阅/规则)? [y/N] (默认删除): " keep_conf
-            if [[ "$keep_conf" =~ ^[Yy]$ ]]; then
-                echo -e "${GREEN}✅ 配置文件已保留。${NC}"
-            else
-                rm -rf /etc/mihomo
-                echo -e "${RED}配置目录已删除。${NC}"
+        if [ -d "$CONF_DIR" ]; then
+            read -p "是否保留配置文件? [y/N]: " keep_conf
+            if [[ ! "$keep_conf" =~ ^[Yy]$ ]]; then
+                rm -rf "$CONF_DIR"
+                echo "配置目录已删除。"
             fi
         fi
-
-        rm -f /var/log/mihomo_install.log
-        
-        if pgrep -x mihomo >/dev/null; then
-            echo -e "${RED}⚠️  警告：仍有 mihomo 进程在运行，请手动检查：pgrep -a mihomo${NC}"
-        else
-            echo -e "${GREEN}✅ 卸载流程完成。${NC}"
-        fi
+        echo -e "${GREEN}✅ 卸载完成。${NC}"
     }
 
     echo -e "${GREEN}=== Mihomo 安装向导 ===${NC}"
     echo "1. 仅安装内核优化 (Sysctl)"
-    echo "2. 在线安装 (自动下载 + 国内加速)"
-    echo "3. 手动安装 (本地上传文件)"
+    echo "2. 在线安装 (下载官方最新版)"
+    echo "3. 部署仓库版本 (推荐！使用你上传的文件)"
     echo "4. 服务管理 (启动/停止/日志)"
     echo -e "${RED}5. 卸载 Mihomo${NC}"
     read -p "请选择: " OPT
@@ -167,7 +200,7 @@ EOF
             echo -e "${GREEN}✔ 优化完成${NC}"
             ;;
         2) install_online ;;
-        3) install_manual ;;
+        3) install_local ;;
         4)
             echo "1) 启动  2) 停止  3) 重启  4) 查看日志"
             read -p "操作: " S_OPT
