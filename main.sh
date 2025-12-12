@@ -6,9 +6,63 @@
 
 # [配置项] 请将此处修改为你的 GitHub 用户名和仓库名
 REPO_URL="https://raw.githubusercontent.com/comengdoc/linux-toolbox/main"
-CACHE_DIR="/tmp/toolbox_cache"
+# 对应的 Git 仓库地址 (用于下载文件夹)
+GIT_REPO_URL="https://github.com/comengdoc/linux-toolbox"
 
+CACHE_DIR="/tmp/toolbox_cache"
 mkdir -p "$CACHE_DIR"
+
+# ==================== [新增] 文件夹同步函数 ====================
+function sync_mihomo_folder() {
+    local target_dir="/tmp/mihomo"
+    local temp_git_dir="/tmp/toolbox_git_temp"
+    
+    # 每次运行先清理旧文件，确保下载的是最新的
+    rm -rf "$target_dir"
+    rm -rf "$temp_git_dir"
+
+    echo -ne "正在同步 mihomo 资源文件夹... "
+
+    # 1. 检查 git 是否安装 (如果系统极简可能需要安装)
+    if ! command -v git &> /dev/null; then
+        echo -ne "(安装git)... "
+        if [ -f /etc/openwrt_release ]; then
+            opkg update >/dev/null 2>&1 && opkg install git-http >/dev/null 2>&1
+        elif [ -f /etc/debian_version ]; then
+            apt-get update >/dev/null 2>&1 && apt-get install -y git >/dev/null 2>&1
+        else
+            yum install -y git >/dev/null 2>&1 || apk add git >/dev/null 2>&1
+        fi
+    fi
+
+    # 2. 尝试拉取仓库 (使用 depth=1 极速模式，不下载历史记录)
+    # 优先尝试直连，失败则走代理
+    if git clone --depth 1 "$GIT_REPO_URL" "$temp_git_dir" >/dev/null 2>&1; then
+        STATUS="OK"
+    else
+        # 备用：使用 ghproxy 代理拉取
+        if git clone --depth 1 "https://ghproxy.net/${GIT_REPO_URL}" "$temp_git_dir" >/dev/null 2>&1; then
+            STATUS="OK (Proxy)"
+        else
+            STATUS="FAIL"
+        fi
+    fi
+
+    # 3. 提取文件并清理
+    if [ "$STATUS" != "FAIL" ] && [ -d "$temp_git_dir/mihomo" ]; then
+        # 将 mihomo 文件夹移动到 /tmp/mihomo
+        mv "$temp_git_dir/mihomo" "/tmp/"
+        echo -e "[\033[0;32m${STATUS}\033[0m]"
+    else
+        echo -e "[\033[0;31mFail\033[0m] (未找到文件夹或网络错误)"
+    fi
+
+    # 4. 删除临时的 git 仓库，节省空间
+    rm -rf "$temp_git_dir"
+}
+
+# === 立即执行文件夹同步 ===
+sync_mihomo_folder
 
 # 模块加载函数
 function load_module() {
