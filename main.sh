@@ -67,10 +67,12 @@ load_module "mount_clean.sh"
 # 启动代理配置 (来自 utils.sh)
 configure_proxy
 
-# ==================== 快捷键管理函数 ====================
+# ==================== 快捷键管理函数 (最终增强版) ====================
 function manage_shortcut() {
     local install_path="/usr/local/bin/linux-toolbox"
     local download_url="${REPO_URL}/main.sh" 
+    # 获取当前用户的 home 目录
+    local current_user_home="$HOME"
 
     echo -e "${BLUE}=== 快捷键管理 ===${NC}"
     echo "1. 设置/更新 快捷键"
@@ -78,15 +80,36 @@ function manage_shortcut() {
     echo "0. 返回"
     read -p "请选择: " action
 
+    # 内部函数：全方位清理指令（文件+别名）
+    function remove_command() {
+        local name=$1
+        
+        # 1. 删除常见路径下的软连接文件
+        rm -f "/usr/bin/${name}"
+        rm -f "/usr/local/bin/${name}"
+        
+        # 2. 清理 .bashrc 中的别名 (解决你遇到的问题)
+        if [ -f "${current_user_home}/.bashrc" ]; then
+            # 如果 .bashrc 里有 alias name=... 的行，直接删除
+            if grep -q "alias ${name}=" "${current_user_home}/.bashrc"; then
+                sed -i "/alias ${name}=/d" "${current_user_home}/.bashrc"
+                echo -e "${YELLOW}已清理 .bashrc 中的别名: ${name}${NC}"
+            fi
+        fi
+        
+        # 3. 尝试取消当前会话的别名 (如果存在)
+        unalias "${name}" 2>/dev/null
+    }
+
     if [ "$action" == "2" ]; then
         read -p "请输入要删除的指令名称 (默认: box): " del_name
         local link_name=${del_name:-box}
-        if [ -f "/usr/bin/${link_name}" ]; then
-            rm -f "/usr/bin/${link_name}"
-            echo -e "${GREEN}✅ 快捷键 '${link_name}' 已删除。${NC}"
-        else
-            echo -e "${RED}❌ 未找到快捷键 '${link_name}'。${NC}"
-        fi
+        
+        remove_command "$link_name"
+        
+        echo -e "${GREEN}✅ 快捷键 '${link_name}' 清理完毕。${NC}"
+        echo -e "${YELLOW}提示: 如果之前是别名，请断开 SSH 重新连接以彻底生效。${NC}"
+        hash -r
         return
     elif [ "$action" != "1" ]; then
         return
@@ -100,10 +123,8 @@ function manage_shortcut() {
 
     echo -e "正在下载最新脚本到: ${install_path} ..."
     
-    # 2. 下载脚本 (带重试机制)
-    # 尝试直接下载
+    # 2. 下载脚本
     if ! curl -s -f -o "$install_path" "$download_url"; then
-         # 如果失败，尝试使用代理
          echo -e "${YELLOW}下载失败，尝试使用加速镜像...${NC}"
          if ! curl -s -f -o "$install_path" "https://ghproxy.net/${download_url}"; then
             echo -e "${RED}❌ 安装失败：无法下载脚本文件。请检查网络。${NC}"
@@ -114,21 +135,27 @@ function manage_shortcut() {
     # 3. 赋予权限
     chmod +x "$install_path"
 
-    # 4. 创建软连接 (支持自定义名称)
+    # 4. 创建软连接 (先清理旧的，防止冲突)
+    remove_command "$link_name"
     ln -sf "$install_path" "/usr/bin/${link_name}"
 
     echo -e "${GREEN}✅ 设置成功!${NC}"
     echo -e "以后在终端输入 ${YELLOW}${link_name}${NC} 即可启动本工具。"
     
-    # 5. 提示用户是否删除旧的 box (如果改名了)
-    if [ "$link_name" != "box" ] && [ -f "/usr/bin/box" ]; then
-        echo
-        read -p "检测到旧的 'box' 指令存在，是否删除? [y/n]: " del_old
-        if [[ "$del_old" == "y" ]]; then
-            rm -f /usr/bin/box
-            echo -e "${GREEN}旧指令 'box' 已删除。${NC}"
+    # 5. 智能清理旧指令 (特别是默认的 box)
+    if [ "$link_name" != "box" ]; then
+        # 检查是否还有 box 的残留 (文件或别名)
+        if grep -q "alias box=" "${current_user_home}/.bashrc" 2>/dev/null || [ -f "/usr/bin/box" ] || [ -f "/usr/local/bin/box" ]; then
+            echo
+            read -p "检测到旧的 'box' 指令(或别名)存在，是否删除? [y/n]: " del_old
+            if [[ "$del_old" == "y" ]]; then
+                remove_command "box"
+                echo -e "${GREEN}旧指令 'box' 已删除。${NC}"
+            fi
         fi
     fi
+    
+    hash -r 
 }
 
 # ==================== 主菜单循环 ====================
