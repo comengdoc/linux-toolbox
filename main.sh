@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # ==============================================================================
-# 模块化加载器 (Loader)
+# 模块化加载器 (Loader) - 增强修复版
 # ==============================================================================
 
-# [配置项] 请将此处修改为你的 GitHub 用户名和仓库名
+# [配置项] 你的 GitHub 用户名和仓库名
 REPO_URL="https://raw.githubusercontent.com/comengdoc/linux-toolbox/main"
 # 对应的 Git 仓库地址 (用于下载文件夹)
 GIT_REPO_URL="https://github.com/comengdoc/linux-toolbox"
@@ -12,20 +12,22 @@ GIT_REPO_URL="https://github.com/comengdoc/linux-toolbox"
 CACHE_DIR="/tmp/toolbox_cache"
 mkdir -p "$CACHE_DIR"
 
-# ==================== [新增] 文件夹同步函数 ====================
+# ==================== [核心修改] 文件夹同步函数 ====================
 function sync_mihomo_folder() {
+    # 设定目标路径为 /tmp/mihomo
     local target_dir="/tmp/mihomo"
     local temp_git_dir="/tmp/toolbox_git_temp"
     
-    # 每次运行先清理旧文件，确保下载的是最新的
+    echo -e "----------------------------------------"
+    echo -e "🚀 正在同步 mihomo 资源..."
+
+    # 1. 环境清理
     rm -rf "$target_dir"
     rm -rf "$temp_git_dir"
 
-    echo -ne "正在同步 mihomo 资源文件夹... "
-
-    # 1. 检查 git 是否安装 (如果系统极简可能需要安装)
+    # 2. 检查 Git (如果缺失则安装)
     if ! command -v git &> /dev/null; then
-        echo -ne "(安装git)... "
+        echo -ne "正在安装 git 环境... "
         if [ -f /etc/openwrt_release ]; then
             opkg update >/dev/null 2>&1 && opkg install git-http >/dev/null 2>&1
         elif [ -f /etc/debian_version ]; then
@@ -33,52 +35,72 @@ function sync_mihomo_folder() {
         else
             yum install -y git >/dev/null 2>&1 || apk add git >/dev/null 2>&1
         fi
+        echo "完成"
     fi
 
-    # 2. 尝试拉取仓库 (使用 depth=1 极速模式，不下载历史记录)
-    # 优先尝试直连，失败则走代理
-    if git clone --depth 1 "$GIT_REPO_URL" "$temp_git_dir" >/dev/null 2>&1; then
-        STATUS="OK"
+    # 3. 开始克隆 (移除 >/dev/null 以显示真实错误，方便调试)
+    echo -e "📡 正在尝试从 GitHub 拉取配置..."
+    
+    # 尝试直连 (关闭 SSL 验证防止老旧设备证书报错)
+    export GIT_SSL_NO_VERIFY=1
+    
+    # 优先尝试直连
+    if git clone --depth 1 "$GIT_REPO_URL" "$temp_git_dir"; then
+        echo -e "✅ 直连下载成功"
     else
-        # 备用：使用 ghproxy 代理拉取
-        if git clone --depth 1 "https://ghproxy.net/${GIT_REPO_URL}" "$temp_git_dir" >/dev/null 2>&1; then
-            STATUS="OK (Proxy)"
+        echo -e "⚠️ 直连失败，尝试使用 Ghproxy 代理..."
+        # 尝试代理
+        if git clone --depth 1 "https://ghproxy.net/${GIT_REPO_URL}" "$temp_git_dir"; then
+            echo -e "✅ 代理下载成功"
         else
-            STATUS="FAIL"
+            echo -e "❌ 严重错误：无法连接到 GitHub！"
+            echo -e "可能原因：网络问题 / 仓库地址错误 / 仓库是私有的"
+            rm -rf "$temp_git_dir"
+            # 这里不退出脚本，以免影响后续菜单显示，但会打印错误
+            return 1 
         fi
     fi
 
-    # 3. 提取文件并清理
-    if [ "$STATUS" != "FAIL" ] && [ -d "$temp_git_dir/mihomo" ]; then
-        # 将 mihomo 文件夹移动到 /tmp/mihomo
-        mv "$temp_git_dir/mihomo" "/tmp/"
-        echo -e "[\033[0;32m${STATUS}\033[0m]"
+    # 4. 提取文件并部署
+    if [ -d "$temp_git_dir/mihomo" ]; then
+        echo "📦 发现 mihomo 文件夹，正在部署到 $target_dir ..."
+        
+        mkdir -p "$target_dir"
+        # 使用 cp -rf 强制复制，比 mv 更稳定
+        cp -rf "$temp_git_dir/mihomo/." "$target_dir/"
+        chmod -R 755 "$target_dir"
+        
+        echo -e "🎉 同步完成！"
+        # 打印一下文件列表证明下载成功了
+        echo "当前 /tmp/mihomo 内容："
+        ls -F "$target_dir" | head -n 5
     else
-        echo -e "[\033[0;31mFail\033[0m] (未找到文件夹或网络错误)"
+        echo -e "❌ 错误：仓库下载成功，但其中没有找到 'mihomo' 文件夹！"
+        echo -e "请检查 GitHub 仓库根目录下是否存在该文件夹（注意大小写）。"
     fi
 
-    # 4. 删除临时的 git 仓库，节省空间
+    # 5. 清理临时仓库
     rm -rf "$temp_git_dir"
+    echo -e "----------------------------------------"
 }
 
-# === 立即执行文件夹同步 ===
+# === 立即执行文件夹同步 (在加载菜单前执行) ===
 sync_mihomo_folder
 
-# 模块加载函数
+# ==================== 模块加载函数 (保持不变) ====================
 function load_module() {
     local module_name="$1"
     local remote_file="${REPO_URL}/core/${module_name}"
     local local_file="${CACHE_DIR}/${module_name}"
 
-    # 简单的缓存策略：文件存在且大小不为0则直接加载，否则下载
-    # 如果需要强制更新，请运行脚本时带参数: ./main.sh update
+    # 简单的缓存策略：文件存在且大小不为0则直接加载
     if [ "$1" != "update" ] && [ -s "$local_file" ]; then
         source "$local_file"
     else
         echo -ne "下载模块: ${module_name} ... "
-        # 尝试使用国内代理下载 (如果主链接失败)
+        # 尝试直连下载
         if ! curl -s -f -o "$local_file" "$remote_file"; then
-             # 备用下载逻辑 (可选)
+             # 备用：代理下载
              remote_file="https://ghproxy.net/${remote_file}"
              if ! curl -s -f -o "$local_file" "$remote_file"; then
                 echo -e "[\033[0;31mFail\033[0m]"
@@ -121,11 +143,10 @@ load_module "mount_clean.sh"
 # 启动代理配置 (来自 utils.sh)
 configure_proxy
 
-# ==================== 快捷键管理函数 (最终增强版) ====================
+# ==================== 快捷键管理函数 ====================
 function manage_shortcut() {
     local install_path="/usr/local/bin/linux-toolbox"
     local download_url="${REPO_URL}/main.sh" 
-    # 获取当前用户的 home 目录
     local current_user_home="$HOME"
 
     echo -e "${BLUE}=== 快捷键管理 ===${NC}"
@@ -134,81 +155,60 @@ function manage_shortcut() {
     echo "0. 返回"
     read -p "请选择: " action
 
-    # 内部函数：全方位清理指令（文件+别名）
     function remove_command() {
         local name=$1
-        
-        # 1. 删除常见路径下的软连接文件
         rm -f "/usr/bin/${name}"
         rm -f "/usr/local/bin/${name}"
-        
-        # 2. 清理 .bashrc 中的别名 (解决你遇到的问题)
         if [ -f "${current_user_home}/.bashrc" ]; then
-            # 如果 .bashrc 里有 alias name=... 的行，直接删除
             if grep -q "alias ${name}=" "${current_user_home}/.bashrc"; then
                 sed -i "/alias ${name}=/d" "${current_user_home}/.bashrc"
                 echo -e "${YELLOW}已清理 .bashrc 中的别名: ${name}${NC}"
             fi
         fi
-        
-        # 3. 尝试取消当前会话的别名 (如果存在)
         unalias "${name}" 2>/dev/null
     }
 
     if [ "$action" == "2" ]; then
         read -p "请输入要删除的指令名称 (默认: box): " del_name
         local link_name=${del_name:-box}
-        
         remove_command "$link_name"
-        
         echo -e "${GREEN}✅ 快捷键 '${link_name}' 清理完毕。${NC}"
-        echo -e "${YELLOW}提示: 如果之前是别名，请断开 SSH 重新连接以彻底生效。${NC}"
         hash -r
         return
     elif [ "$action" != "1" ]; then
         return
     fi
 
-    # === 下面是设置逻辑 ===
-    
-    # 1. 让用户自定义名称
     read -p "请输入自定义快捷指令名称 (回车默认: box): " input_name
     local link_name=${input_name:-box}
 
     echo -e "正在下载最新脚本到: ${install_path} ..."
     
-    # 2. 下载脚本
     if ! curl -s -f -o "$install_path" "$download_url"; then
          echo -e "${YELLOW}下载失败，尝试使用加速镜像...${NC}"
          if ! curl -s -f -o "$install_path" "https://ghproxy.net/${download_url}"; then
-            echo -e "${RED}❌ 安装失败：无法下载脚本文件。请检查网络。${NC}"
+            echo -e "${RED}❌ 安装失败：无法下载脚本文件。${NC}"
             return 1
          fi
     fi
 
-    # 3. 赋予权限
     chmod +x "$install_path"
-
-    # 4. 创建软连接 (先清理旧的，防止冲突)
     remove_command "$link_name"
     ln -sf "$install_path" "/usr/bin/${link_name}"
 
     echo -e "${GREEN}✅ 设置成功!${NC}"
     echo -e "以后在终端输入 ${YELLOW}${link_name}${NC} 即可启动本工具。"
     
-    # 5. 智能清理旧指令 (特别是默认的 box)
     if [ "$link_name" != "box" ]; then
-        # 检查是否还有 box 的残留 (文件或别名)
         if grep -q "alias box=" "${current_user_home}/.bashrc" 2>/dev/null || [ -f "/usr/bin/box" ] || [ -f "/usr/local/bin/box" ]; then
             echo
-            read -p "检测到旧的 'box' 指令(或别名)存在，是否删除? [y/n]: " del_old
+            read -p "检测到旧的 'box' 指令存在，是否删除? [y/n]: " del_old
             if [[ "$del_old" == "y" ]]; then
                 remove_command "box"
                 echo -e "${GREEN}旧指令 'box' 已删除。${NC}"
             fi
         fi
     fi
-    
     hash -r 
 }
 
@@ -216,7 +216,7 @@ function manage_shortcut() {
 while true; do
     clear
     echo -e "${BLUE}====================================================${NC}"
-    echo -e "       🛠️  Armbian/Docker 模块化工具箱 (Online v2.0)"
+    echo -e "       🛠️  Armbian/Docker 模块化工具箱 (Online v2.1)"
     echo -e "${BLUE}====================================================${NC}"
     echo -e " ${GREEN}1.${NC} 安装/管理 Docker"
     echo -e " ${GREEN}2.${NC} 安装 Mihomo/Clash"
