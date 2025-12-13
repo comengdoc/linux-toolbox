@@ -1,23 +1,27 @@
 #!/bin/bash
 
 # ==============================================================================
-# 模块化加载器 (Loader) - Final Release
+# 模块化加载器 (Loader) - v2.6 (支持手动代理兜底)
 # ==============================================================================
 
-# [配置项] 你的 GitHub 用户名和仓库名
+# [配置项]
 REPO_URL="https://raw.githubusercontent.com/comengdoc/linux-toolbox/main"
-# 对应的 Git 仓库地址
 GIT_REPO_URL="https://github.com/comengdoc/linux-toolbox"
-
 CACHE_DIR="/tmp/toolbox_cache"
 mkdir -p "$CACHE_DIR"
+
+# 定义颜色 (防闪烁兼容)
+BLUE='\033[0;34m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+RED='\033[0;31m'
+NC='\033[0m'
 
 # ==================== 1. 资源同步函数 (Mihomo) ====================
 sync_mihomo_folder() {
     local target_dir="/tmp/mihomo"
     local temp_git_dir="/tmp/toolbox_git_temp"
     
-    # 仅在第一次运行时提示，避免菜单循环时干扰视觉
     echo -e "----------------------------------------"
     echo -e "🚀 正在检查并同步 mihomo 资源..."
 
@@ -38,21 +42,53 @@ sync_mihomo_folder() {
         echo "完成"
     fi
 
-    # 3. 下载仓库 (尝试直连 -> 失败转代理)
+    # 3. 下载仓库 (三级重试机制)
     export GIT_SSL_NO_VERIFY=1
-    
-    # 尝试直连 (静默模式，失败才显示)
-    if git clone --depth 1 "$GIT_REPO_URL" "$temp_git_dir" >/dev/null 2>&1; then
-        echo -e "✅ GitHub 直连下载成功"
+    local clone_success=0
+
+    # --- 尝试 1: 默认代理 ---
+    echo -e "🔄 [1/3] 尝试官方加速通道 (ghproxy)..."
+    if git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 clone --depth 1 "https://ghproxy.net/${GIT_REPO_URL}" "$temp_git_dir"; then
+        clone_success=1
     else
-        echo -e "⚠️ 直连慢，尝试使用加速镜像..."
-        if git clone --depth 1 "https://ghproxy.net/${GIT_REPO_URL}" "$temp_git_dir" >/dev/null 2>&1; then
-            echo -e "✅ 代理加速下载成功"
+        echo -e "${YELLOW}⚠️ 默认代理连接超时，尝试直连...${NC}"
+        
+        # --- 尝试 2: 直连 ---
+        echo -e "🔄 [2/3] 尝试直连 GitHub..."
+        if git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 clone --depth 1 "$GIT_REPO_URL" "$temp_git_dir"; then
+            clone_success=1
         else
-            echo -e "❌ [警告] 无法连接到仓库，mihomo 安装功能可能受限。"
-            rm -rf "$temp_git_dir"
-            return 1
+            echo -e "${RED}❌ 直连也失败了。${NC}"
+            
+            # --- 尝试 3: 手动输入代理 (新增功能) ---
+            echo -e "----------------------------------------"
+            echo -e "${YELLOW}检测到网络环境较差，无法自动下载资源。${NC}"
+            echo -e "请输入自定义代理前缀 (例如: https://mirror.ghproxy.com/ )"
+            echo -e "或者直接按回车跳过安装。"
+            # 使用 < /dev/tty 确保在管道模式下能读取键盘输入
+            read -p "👉 请输入代理地址: " custom_proxy < /dev/tty
+            
+            if [ -n "$custom_proxy" ]; then
+                echo -e "🔄 [3/3] 尝试使用自定义代理: ${custom_proxy} ..."
+                # 确保拼接 URL 格式正确
+                local full_url="${custom_proxy}${GIT_REPO_URL}"
+                # 去掉可能重复的 // (http://除外)
+                # full_url=$(echo "$full_url" | sed 's|(?<!:)//|/|g') 
+                
+                if git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 clone --depth 1 "$full_url" "$temp_git_dir"; then
+                    echo -e "${GREEN}✅ 自定义代理下载成功！${NC}"
+                    clone_success=1
+                else
+                    echo -e "${RED}❌ 自定义代理也无效。${NC}"
+                fi
+            fi
         fi
+    fi
+
+    if [ "$clone_success" -eq 0 ]; then
+        echo -e "${RED}❌ 错误：所有下载方式均失败，跳过 mihomo 资源同步。${NC}"
+        rm -rf "$temp_git_dir"
+        return 1
     fi
 
     # 4. 部署文件
@@ -60,9 +96,9 @@ sync_mihomo_folder() {
         mkdir -p "$target_dir"
         cp -rf "$temp_git_dir/mihomo/." "$target_dir/"
         chmod -R 755 "$target_dir"
-        echo -e "📦 资源已就绪 (/tmp/mihomo)"
+        echo -e "${GREEN}📦 资源已准备就绪${NC}"
     else
-        echo -e "⚠️ 提示：仓库下载成功，但未找到 mihomo 文件夹 (可能是纯脚本更新)。"
+        echo -e "${YELLOW}⚠️ 仓库结构异常，未找到 mihomo 目录。${NC}"
     fi
 
     # 5. 清理
@@ -83,15 +119,20 @@ load_module() {
         source "$local_file"
     else
         echo -ne "下载模块: ${module_name} ... "
-        if ! curl -s -f -o "$local_file" "$remote_file"; then
-             # 备用下载
-             remote_file="https://ghproxy.net/${remote_file}"
+        
+        # 优先尝试加速地址
+        if curl -s -f -o "$local_file" "https://ghproxy.net/${remote_file}"; then
+             echo -e "[\033[0;32mOK\033[0m]"
+        else
+             # 备用直连
              if ! curl -s -f -o "$local_file" "$remote_file"; then
                 echo -e "[\033[0;31mFail\033[0m]"
                 return 1
+             else
+                echo -e "[\033[0;32mOK (Direct)\033[0m]"
              fi
         fi
-        echo -e "[\033[0;32mOK\033[0m]"
+        
         chmod +x "$local_file"
         source "$local_file"
     fi
@@ -102,10 +143,14 @@ if [ "$1" == "update" ]; then
     echo "缓存已清理..."
 fi
 
-# ==================== 3. 加载功能模块 ====================
+# ==================== 3. 加载核心模块 ====================
 load_module "utils.sh"
 
-check_root
+# 权限检查
+if [ "$(id -u)" != "0" ]; then
+    echo -e "${RED}请使用 Root 用户运行此脚本！${NC}"
+    exit 1
+fi
 
 load_module "docker_install.sh"
 load_module "mihomo.sh"
@@ -121,7 +166,10 @@ load_module "disk.sh"
 load_module "monitor.sh"
 load_module "mount_clean.sh"
 
-configure_proxy
+# 如果 utils.sh 里有 configure_proxy，则调用
+if command -v configure_proxy &> /dev/null; then
+    configure_proxy
+fi
 
 # ==================== 4. 快捷键管理 ====================
 manage_shortcut() {
@@ -160,8 +208,8 @@ manage_shortcut() {
     local link_name=${input_name:-box}
 
     echo -e "正在安装到系统..."
-    if ! curl -s -f -o "$install_path" "$download_url"; then
-         if ! curl -s -f -o "$install_path" "https://ghproxy.net/${download_url}"; then
+    if ! curl -s -f -o "$install_path" "https://ghproxy.net/${download_url}"; then
+         if ! curl -s -f -o "$install_path" "$download_url"; then
             echo -e "${RED}❌ 下载失败${NC}"
             return 1
          fi
@@ -183,11 +231,11 @@ manage_shortcut() {
     hash -r 
 }
 
-# ==================== 5. 主菜单 (防闪烁版) ====================
+# ==================== 5. 主菜单 ====================
 while true; do
     clear
     echo -e "${BLUE}====================================================${NC}"
-    echo -e "       🛠️  Armbian/Docker 工具箱 (Online v2.5)"
+    echo -e "       🛠️  Armbian/Docker 工具箱 (v2.6 Proxy Fix)"
     echo -e "${BLUE}====================================================${NC}"
     echo -e " ${GREEN}1.${NC} 安装/管理 Docker"
     echo -e " ${GREEN}2.${NC} 安装 Mihomo/Clash"
@@ -209,7 +257,7 @@ while true; do
     echo -e " ${GREEN}0.${NC} 退出"
     echo
     
-    # === 关键修改：重定向输入流 ===
+    # 输入重定向，防止跳过
     read -p "请输入选项 [0-14]: " choice < /dev/tty
 
     case "$choice" in
