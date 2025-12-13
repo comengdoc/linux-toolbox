@@ -1,22 +1,31 @@
 [Unit]
 Description=mihomo Daemon, Another Clash Kernel.
-# 确保网络完全就绪后再启动
-After=network-online.target
-Wants=network-online.target
+# 【重要改动】增加 time-sync.target，确保时间同步后再启动，防止节点 SSL 握手失败
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
 
 [Service]
 Type=simple
 # 限制资源
 LimitNPROC=500
 LimitNOFILE=1000000
-# 提供必要的能力
+
+# 【优化】Go 语言垃圾回收参数，由默认 100 改为 20，减少内存占用，适合旁路由长期运行
+Environment="GOGC=20"
+
+# 提供必要的能力 (保留你原本的设置，足够了)
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE
+
 # 自动重启
 Restart=always
 RestartSec=5
 
-# 启动前等待网络接口就绪
+# 【优化】ExecStartPre 增加开启 IP 转发功能，确保旁路由转发正常
+ExecStartPre=/bin/bash -c 'echo 1 > /proc/sys/net/ipv4/ip_forward'
+
+# 启动前等待网络接口就绪 (保留你原来的逻辑，这逻辑没问题)
+# 注意：如果你设置的是静态IP，这个检测通常会瞬间通过
 ExecStartPre=/bin/bash -c 'for i in {1..20}; do if ip route show default | grep -q "default"; then echo "Network ready"; exit 0; fi; sleep 1; done; echo "Network not ready"; exit 1'
 
 # 启动 mihomo
@@ -25,7 +34,7 @@ ExecStart=/usr/local/bin/mihomo -d /etc/mihomo
 # 支持 reload
 ExecReload=/bin/kill -HUP $MAINPID
 
-# 日志输出到 journald
+# 日志输出
 StandardOutput=journal
 StandardError=journal
 

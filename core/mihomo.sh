@@ -1,28 +1,51 @@
 #!/bin/bash
 
-function module_mihomo() {
-    # 定义两个源目录：
-    # 1. 自动下载目录 (优先级高)
-    AUTO_DIR="/tmp/mihomo"
-    # 2. 手动上传目录 (备用)
-    MANUAL_DIR="/root/mihomo"
-    
-    # 最终配置文件安装位置
-    CONF_DIR="/etc/mihomo"
-    BIN_PATH="/usr/local/bin/mihomo"
+# =========================================================
+# Mihomo 一键安装脚本 (旁路由/网关 专用优化版)
+# 适用设备: 斐讯N1, NanoPi R5C 等 ARM 架构设备
+# =========================================================
 
-    # ==================== 服务配置函数 ====================
+# 定义颜色
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+function module_mihomo() {
+    # 定义路径
+    AUTO_DIR="/tmp/mihomo"          # 自动下载缓存路径
+    MANUAL_DIR="/root/mihomo"       # 手动上传路径
+    CONF_DIR="/etc/mihomo"          # 配置文件路径
+    BIN_PATH="/usr/local/bin/mihomo" # 二进制文件路径
+
+    # ==================== 0. 内核优化函数 (旁路由必须) ====================
+    optimize_sysctl() {
+        echo -e "${BLUE}>>> 正在应用系统内核优化 (开启IP转发/BBR)...${NC}"
+        cat > /etc/sysctl.d/99-mihomo-optimized.conf <<EOF
+# 开启 IPv4/IPv6 转发 (旁路由核心)
+net.ipv4.ip_forward=1
+net.ipv6.conf.all.forwarding=1
+# 开启 BBR 拥塞控制
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+# 增大文件监听数 (防止报错)
+fs.inotify.max_user_watches=524288
+EOF
+        sysctl --system >/dev/null 2>&1
+        echo -e "${GREEN}✅ 内核参数优化完成${NC}"
+    }
+
+    # ==================== 1. 服务配置函数 (核心修改) ====================
     setup_service() {
         echo -e "${BLUE}>>> 配置 Systemd 服务...${NC}"
         mkdir -p "$CONF_DIR"
         
-        # 1. 处理配置文件 (config.yaml)
+        # --- 配置文件处理 ---
         if [ ! -f "$CONF_DIR/config.yaml" ]; then
-             # 优先从 /tmp/mihomo 找
              if [ -f "$AUTO_DIR/config.yaml" ]; then
                  cp "$AUTO_DIR/config.yaml" "$CONF_DIR/config.yaml"
                  echo -e "${GREEN}✅ 已应用仓库中的 config.yaml${NC}"
-             # 其次从 /root/mihomo 找
              elif [ -f "$MANUAL_DIR/config.yaml" ]; then
                  cp "$MANUAL_DIR/config.yaml" "$CONF_DIR/config.yaml"
                  echo -e "${GREEN}✅ 已应用本地 config.yaml${NC}"
@@ -33,37 +56,57 @@ function module_mihomo() {
              fi
         fi
 
-        # 2. 处理服务文件 (mihomo.service)
-        # 如果仓库里自带了 service 文件，直接用仓库的，这样你可以在 GitHub 上自定义启动参数
-        if [ -f "$AUTO_DIR/mihomo.service" ]; then
-            cp "$AUTO_DIR/mihomo.service" /etc/systemd/system/mihomo.service
-            echo -e "${GREEN}✅ 已应用仓库中的 mihomo.service 服务配置${NC}"
-        else
-            # 否则生成默认的标准配置
-            cat > /etc/systemd/system/mihomo.service <<EOF
+        # --- Service 文件生成 (直接写入最强优化版) ---
+        # 注意：这里集成了 TimeSync(防断网)、GOGC(防爆内存)、ExecStartPre(防网关失效)
+        cat > /etc/systemd/system/mihomo.service <<EOF
 [Unit]
-Description=Mihomo Daemon
-After=network.target
+Description=mihomo Daemon, Another Clash Kernel.
+# 【关键】等待时间同步，防止 N1/R5C 断电重启后时间错误导致节点 SSL 握手失败
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
 
 [Service]
 Type=simple
+# 资源限制
+LimitNPROC=500
+LimitNOFILE=1000000
+
+# 【关键】内存优化：限制 Go 垃圾回收频率，防止小内存设备爆内存 (默认100)
+Environment="GOGC=20"
+
+# 必要的网络权限
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE
+
+# 崩溃自动重启
 Restart=always
+RestartSec=5
+
+# 【关键】旁路由核心：启动前强制开启 IP 转发，防止系统重置导致网关失效
+ExecStartPre=/bin/bash -c 'echo 1 > /proc/sys/net/ipv4/ip_forward'
+
+# 【关键】网络检测：循环等待默认路由就绪，防止服务在网络未通时反复重启报错
+ExecStartPre=/bin/bash -c 'for i in {1..20}; do if ip route show default | grep -q "default"; then echo "Network ready"; exit 0; fi; sleep 1; done; echo "Network not ready"; exit 1'
+
+# 启动命令
 ExecStart=$BIN_PATH -d $CONF_DIR
-User=root
-LimitNOFILE=524288
+
+# 重载与日志
+ExecReload=/bin/kill -HUP \$MAINPID
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
-            echo -e "${GREEN}✅ 已生成默认服务配置${NC}"
-        fi
+        echo -e "${GREEN}✅ 已生成优化版服务配置 (含 TimeSync/GOGC/IP转发)${NC}"
 
         systemctl daemon-reload
         systemctl enable mihomo
-        echo -e "${GREEN}✅ 服务配置完成${NC}"
+        echo -e "${GREEN}✅ 服务已配置并设置为开机自启${NC}"
     }
 
-    # ==================== 在线下载安装 ====================
+    # ==================== 2. 在线下载安装 ====================
     install_online() {
         echo -e "${BLUE}>>> 正在检测系统架构...${NC}"
         local ARCH=$(uname -m)
@@ -101,30 +144,30 @@ EOF
         chmod 755 "$BIN_PATH"
         
         echo -e "${GREEN}✅ Mihomo 已在线安装完毕${NC}"
+        
+        # 自动执行优化和配置
+        optimize_sysctl
         setup_service
     }
 
-    # ==================== 仓库/本地安装 (核心修改) ====================
+    # ==================== 3. 仓库/本地安装 ====================
     install_local() {
         echo -e "${GREEN}=== 仓库/本地 部署模式 ===${NC}"
         
         local SOURCE_FILE=""
 
-        # 1. 优先检查 main.sh 刚刚自动下载的目录 (/tmp/mihomo)
+        # 1. 优先检查自动下载目录
         if [ -f "$AUTO_DIR/mihomo" ]; then
-            echo -e "${GREEN}🎉 检测到 GitHub 仓库文件已自动下载 (/tmp/mihomo)${NC}"
+            echo -e "${GREEN}🎉 检测到 GitHub 仓库文件 (/tmp/mihomo)${NC}"
             SOURCE_FILE="$AUTO_DIR/mihomo"
-        
-        # 2. 其次检查用户手动上传目录 (/root/mihomo)
+        # 2. 其次检查手动上传目录
         elif [ -f "$MANUAL_DIR/mihomo" ]; then
-             echo -e "${YELLOW}检测到 /root/mihomo 下存在手动上传的文件${NC}"
+             echo -e "${YELLOW}检测到本地上传文件 (/root/mihomo)${NC}"
              SOURCE_FILE="$MANUAL_DIR/mihomo"
-        
-        # 3. 都没有，提示用户
         else
             echo -e "${RED}❌ 未检测到安装文件！${NC}"
             echo "请选择："
-            echo "1. 我现在去把文件上传到 $MANUAL_DIR，然后按回车"
+            echo "1. 我现在去上传到 $MANUAL_DIR，然后按回车"
             echo "2. 放弃"
             read -p "选择: " choice
             if [ "$choice" == "1" ]; then
@@ -141,23 +184,24 @@ EOF
             fi
         fi
 
-        # 开始安装二进制文件
         echo -e "正在安装核心文件..."
         cp "$SOURCE_FILE" "$BIN_PATH"
         chmod 755 "$BIN_PATH"
         
-        # 验证
+        # 简单验证
         if "$BIN_PATH" -v >/dev/null 2>&1; then
             echo -e "${GREEN}✅ 核心文件安装成功: $("$BIN_PATH" -v)${NC}"
         else
-            echo -e "${RED}❌ 安装的文件似乎无法运行 (可能是架构不对或文件损坏)${NC}"
+            echo -e "${RED}❌ 文件无法运行 (架构错误或文件损坏)${NC}"
             return 1
         fi
 
-        # 配置服务和配置文件
+        # 自动执行优化和配置
+        optimize_sysctl
         setup_service
     }
 
+    # ==================== 4. 卸载函数 ====================
     uninstall_mihomo() {
         echo -e "${RED}⚠️  警告：准备卸载 Mihomo${NC}"
         read -p "确认要卸载吗？(y/N): " confirm
@@ -167,6 +211,7 @@ EOF
         systemctl disable mihomo 2>/dev/null
         rm -f "$BIN_PATH"
         rm -f /etc/systemd/system/mihomo.service
+        rm -f /etc/sysctl.d/99-mihomo-optimized.conf
         systemctl daemon-reload
 
         if [ -d "$CONF_DIR" ]; then
@@ -179,28 +224,25 @@ EOF
         echo -e "${GREEN}✅ 卸载完成。${NC}"
     }
 
-    echo -e "${GREEN}=== Mihomo 安装向导 ===${NC}"
-    echo "1. 仅安装内核优化 (Sysctl)"
+    # ==================== 菜单逻辑 ====================
+    echo -e "${GREEN}=== Mihomo 安装向导 (旁路由优化版) ===${NC}"
+    echo "1. 手动应用内核优化 (Sysctl)"
     echo "2. 在线安装 (下载官方最新版)"
-    echo "3. 部署仓库版本 (推荐！使用你上传的文件)"
+    echo "3. 部署仓库版本 (推荐！使用本地/仓库文件)"
     echo "4. 服务管理 (启动/停止/日志)"
     echo -e "${RED}5. 卸载 Mihomo${NC}"
     read -p "请选择: " OPT
 
     case "$OPT" in
         1)
-            cat > /etc/sysctl.d/99-mihomo-optimized.conf <<EOF
-net.ipv4.ip_forward=1
-net.ipv6.conf.all.forwarding=1
-net.core.default_qdisc=fq
-net.ipv4.tcp_congestion_control=bbr
-fs.inotify.max_user_watches=524288
-EOF
-            sysctl --system
-            echo -e "${GREEN}✔ 优化完成${NC}"
+            optimize_sysctl
             ;;
-        2) install_online ;;
-        3) install_local ;;
+        2) 
+            install_online 
+            ;;
+        3) 
+            install_local 
+            ;;
         4)
             echo "1) 启动  2) 停止  3) 重启  4) 查看日志"
             read -p "操作: " S_OPT
@@ -211,7 +253,11 @@ EOF
                 4) systemctl status mihomo --no-pager ;;
             esac
             ;;
-        5) uninstall_mihomo ;;
-        *) echo "无效选择" ;;
+        5) 
+            uninstall_mihomo 
+            ;;
+        *) 
+            echo "无效选择" 
+            ;;
     esac
 }
