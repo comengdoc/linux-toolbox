@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-# Mihomo 一键安装脚本 (旁路由/网关 专用优化版)
+# Mihomo 一键安装脚本 (修复菜单跳过 Bug 版)
 # 适用设备: 斐讯N1, NanoPi R5C 等 ARM 架构设备
 # =========================================================
 
@@ -56,8 +56,7 @@ EOF
              fi
         fi
 
-        # --- Service 文件生成 (直接写入最强优化版) ---
-        # 注意：这里集成了 TimeSync(防断网)、GOGC(防爆内存)、ExecStartPre(防网关失效)
+        # --- Service 文件生成 (包含 TimeSync/GOGC/IP转发 优化) ---
         cat > /etc/systemd/system/mihomo.service <<EOF
 [Unit]
 Description=mihomo Daemon, Another Clash Kernel.
@@ -71,7 +70,7 @@ Type=simple
 LimitNPROC=500
 LimitNOFILE=1000000
 
-# 【关键】内存优化：限制 Go 垃圾回收频率，防止小内存设备爆内存 (默认100)
+# 【关键】内存优化：限制 Go 垃圾回收频率，防止小内存设备爆内存
 Environment="GOGC=20"
 
 # 必要的网络权限
@@ -82,10 +81,10 @@ AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME 
 Restart=always
 RestartSec=5
 
-# 【关键】旁路由核心：启动前强制开启 IP 转发，防止系统重置导致网关失效
+# 【关键】旁路由核心：启动前强制开启 IP 转发
 ExecStartPre=/bin/bash -c 'echo 1 > /proc/sys/net/ipv4/ip_forward'
 
-# 【关键】网络检测：循环等待默认路由就绪，防止服务在网络未通时反复重启报错
+# 【关键】网络检测：循环等待默认路由就绪
 ExecStartPre=/bin/bash -c 'for i in {1..20}; do if ip route show default | grep -q "default"; then echo "Network ready"; exit 0; fi; sleep 1; done; echo "Network not ready"; exit 1'
 
 # 启动命令
@@ -99,7 +98,7 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 EOF
-        echo -e "${GREEN}✅ 已生成优化版服务配置 (含 TimeSync/GOGC/IP转发)${NC}"
+        echo -e "${GREEN}✅ 已生成优化版服务配置${NC}"
 
         systemctl daemon-reload
         systemctl enable mihomo
@@ -119,16 +118,19 @@ EOF
         esac
 
         echo -e "${BLUE}>>> 正在获取 Mihomo 版本信息...${NC}"
+        # 这里 curl 没问题，不需要改
         LATEST_VER=$(curl -s -m 5 https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         
         if [ -z "$LATEST_VER" ]; then
-            read -p "获取失败，请输入欲安装的版本号 (例如 v1.18.5): " LATEST_VER
+            # 【修复点 1】增加 < /dev/tty
+            read -p "获取失败，请输入欲安装的版本号 (例如 v1.18.5): " LATEST_VER < /dev/tty
             if [ -z "$LATEST_VER" ]; then echo "❌ 未输入版本号"; return 1; fi
         fi
         
-        # 使用 ghproxy 加速下载
+        # 兼容 main.sh 传过来的代理设置 (如果有)
+        local proxy_prefix="${PROXY_PREFIX:-https://ghproxy.net/}"
         TARGET_URL="https://github.com/MetaCubeX/mihomo/releases/download/${LATEST_VER}/mihomo-linux-${MIHOMO_ARCH}-${LATEST_VER}.gz"
-        PROXY_URL="https://ghproxy.net/${TARGET_URL}"
+        PROXY_URL="${proxy_prefix}${TARGET_URL}"
         
         echo -e "正在下载: ${GREEN}${PROXY_URL}${NC}"
         rm -f /tmp/mihomo.gz
@@ -144,8 +146,6 @@ EOF
         chmod 755 "$BIN_PATH"
         
         echo -e "${GREEN}✅ Mihomo 已在线安装完毕${NC}"
-        
-        # 自动执行优化和配置
         optimize_sysctl
         setup_service
     }
@@ -153,7 +153,6 @@ EOF
     # ==================== 3. 仓库/本地安装 ====================
     install_local() {
         echo -e "${GREEN}=== 仓库/本地 部署模式 ===${NC}"
-        
         local SOURCE_FILE=""
 
         # 1. 优先检查自动下载目录
@@ -169,10 +168,12 @@ EOF
             echo "请选择："
             echo "1. 我现在去上传到 $MANUAL_DIR，然后按回车"
             echo "2. 放弃"
-            read -p "选择: " choice
+            # 【修复点 2】增加 < /dev/tty
+            read -p "选择: " choice < /dev/tty
             if [ "$choice" == "1" ]; then
                 mkdir -p "$MANUAL_DIR"
-                read -p "上传完成后，请按回车继续..."
+                # 【修复点 3】增加 < /dev/tty
+                read -p "上传完成后，请按回车继续..." < /dev/tty
                 if [ -f "$MANUAL_DIR/mihomo" ]; then
                     SOURCE_FILE="$MANUAL_DIR/mihomo"
                 else
@@ -188,7 +189,6 @@ EOF
         cp "$SOURCE_FILE" "$BIN_PATH"
         chmod 755 "$BIN_PATH"
         
-        # 简单验证
         if "$BIN_PATH" -v >/dev/null 2>&1; then
             echo -e "${GREEN}✅ 核心文件安装成功: $("$BIN_PATH" -v)${NC}"
         else
@@ -196,7 +196,6 @@ EOF
             return 1
         fi
 
-        # 自动执行优化和配置
         optimize_sysctl
         setup_service
     }
@@ -204,7 +203,8 @@ EOF
     # ==================== 4. 卸载函数 ====================
     uninstall_mihomo() {
         echo -e "${RED}⚠️  警告：准备卸载 Mihomo${NC}"
-        read -p "确认要卸载吗？(y/N): " confirm
+        # 【修复点 4】增加 < /dev/tty
+        read -p "确认要卸载吗？(y/N): " confirm < /dev/tty
         if [[ ! "$confirm" =~ ^[Yy]$ ]]; then echo "已取消"; return; fi
 
         systemctl stop mihomo 2>/dev/null
@@ -215,7 +215,8 @@ EOF
         systemctl daemon-reload
 
         if [ -d "$CONF_DIR" ]; then
-            read -p "是否保留配置文件? [y/N]: " keep_conf
+            # 【修复点 5】增加 < /dev/tty
+            read -p "是否保留配置文件? [y/N]: " keep_conf < /dev/tty
             if [[ ! "$keep_conf" =~ ^[Yy]$ ]]; then
                 rm -rf "$CONF_DIR"
                 echo "配置目录已删除。"
@@ -231,21 +232,18 @@ EOF
     echo "3. 部署仓库版本 (推荐！使用本地/仓库文件)"
     echo "4. 服务管理 (启动/停止/日志)"
     echo -e "${RED}5. 卸载 Mihomo${NC}"
-    read -p "请选择: " OPT
+    
+    # 【修复点 6 - 关键】增加 < /dev/tty，防止菜单秒退
+    read -p "请选择: " OPT < /dev/tty
 
     case "$OPT" in
-        1)
-            optimize_sysctl
-            ;;
-        2) 
-            install_online 
-            ;;
-        3) 
-            install_local 
-            ;;
+        1) optimize_sysctl ;;
+        2) install_online ;;
+        3) install_local ;;
         4)
             echo "1) 启动  2) 停止  3) 重启  4) 查看日志"
-            read -p "操作: " S_OPT
+            # 【修复点 7】增加 < /dev/tty
+            read -p "操作: " S_OPT < /dev/tty
             case $S_OPT in
                 1) systemctl start mihomo; echo "已启动" ;;
                 2) systemctl stop mihomo; echo "已停止" ;;
@@ -253,11 +251,7 @@ EOF
                 4) systemctl status mihomo --no-pager ;;
             esac
             ;;
-        5) 
-            uninstall_mihomo 
-            ;;
-        *) 
-            echo "无效选择" 
-            ;;
+        5) uninstall_mihomo ;;
+        *) echo "无效选择" ;;
     esac
 }
