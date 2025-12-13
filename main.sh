@@ -1,21 +1,72 @@
 #!/bin/bash
 
 # ==============================================================================
-# 模块化加载器 (Loader) - v2.6 (支持手动代理兜底)
+# 模块化加载器 (Loader) - v3.0 (全局通道选择版)
 # ==============================================================================
 
-# [配置项]
+# [基础配置]
 REPO_URL="https://raw.githubusercontent.com/comengdoc/linux-toolbox/main"
 GIT_REPO_URL="https://github.com/comengdoc/linux-toolbox"
 CACHE_DIR="/tmp/toolbox_cache"
 mkdir -p "$CACHE_DIR"
 
-# 定义颜色 (防闪烁兼容)
+# [颜色定义]
 BLUE='\033[0;34m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 RED='\033[0;31m'
 NC='\033[0m'
+
+# ==================== 0. 全局下载通道选择 (核心新功能) ====================
+# 这个变量将贯穿整个脚本的生命周期
+PROXY_PREFIX=""
+
+select_download_channel() {
+    clear
+    echo -e "${BLUE}====================================================${NC}"
+    echo -e "       🌐 网络环境预设 (Network Setup)"
+    echo -e "${BLUE}====================================================${NC}"
+    echo -e "检测到您正在初始化工具箱，请选择下载加速通道："
+    echo
+    echo -e " ${GREEN}1.${NC} 默认加速 (ghproxy.net)  ${YELLOW}[推荐国内用户]${NC}"
+    echo -e " ${GREEN}2.${NC} GitHub 直连             ${YELLOW}[适合国外/已挂全局]${NC}"
+    echo -e " ${GREEN}3.${NC} 手动输入加速地址        ${YELLOW}[自定义代理]${NC}"
+    echo
+    echo -e "${BLUE}----------------------------------------------------${NC}"
+    read -p "请选择 [1-3] (默认 1): " net_choice < /dev/tty
+    
+    # 默认选 1
+    net_choice=${net_choice:-1}
+
+    case "$net_choice" in
+        1)
+            PROXY_PREFIX="https://ghproxy.net/"
+            echo -e "${GREEN}✅ 已选择: 默认加速通道${NC}"
+            ;;
+        2)
+            PROXY_PREFIX=""
+            echo -e "${GREEN}✅ 已选择: GitHub 直连模式${NC}"
+            ;;
+        3)
+            echo
+            echo -e "请输入代理前缀 (例如: https://git.886.be/ )"
+            echo -e "注意: 输入的地址结尾必须带 / (或者留空取消)"
+            read -p "👉 地址: " custom_input < /dev/tty
+            if [ -n "$custom_input" ]; then
+                PROXY_PREFIX="$custom_input"
+                echo -e "${GREEN}✅ 已选择: 自定义通道 ($PROXY_PREFIX)${NC}"
+            else
+                PROXY_PREFIX="https://ghproxy.net/"
+                echo -e "${YELLOW}⚠️ 未输入，自动回退到默认加速通道${NC}"
+            fi
+            ;;
+        *)
+            PROXY_PREFIX="https://ghproxy.net/"
+            echo -e "${YELLOW}⚠️ 选项无效，自动使用默认加速通道${NC}"
+            ;;
+    esac
+    sleep 1
+}
 
 # ==================== 1. 资源同步函数 (Mihomo) ====================
 sync_mihomo_folder() {
@@ -23,7 +74,7 @@ sync_mihomo_folder() {
     local temp_git_dir="/tmp/toolbox_git_temp"
     
     echo -e "----------------------------------------"
-    echo -e "🚀 正在检查并同步 mihomo 资源..."
+    echo -e "🚀 正在同步 Mihomo 资源 (使用选定通道)..."
 
     # 1. 环境清理
     rm -rf "$target_dir"
@@ -42,108 +93,78 @@ sync_mihomo_folder() {
         echo "完成"
     fi
 
-    # 3. 下载仓库 (三级重试机制)
+    # 3. 下载仓库 (直接使用 PROXY_PREFIX)
     export GIT_SSL_NO_VERIFY=1
-    local clone_success=0
+    
+    # 拼接最终 URL
+    local final_git_url="${PROXY_PREFIX}${GIT_REPO_URL}"
+    
+    echo -e "🔄 Clone Source: ${YELLOW}${final_git_url}${NC}"
 
-    # --- 尝试 1: 默认代理 ---
-    echo -e "🔄 [1/3] 尝试官方加速通道 (ghproxy)..."
-    if git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 clone --depth 1 "https://ghproxy.net/${GIT_REPO_URL}" "$temp_git_dir"; then
-        clone_success=1
-    else
-        echo -e "${YELLOW}⚠️ 默认代理连接超时，尝试直连...${NC}"
+    if git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 clone --depth 1 "$final_git_url" "$temp_git_dir"; then
+        echo -e "${GREEN}✅ 资源下载成功${NC}"
         
-        # --- 尝试 2: 直连 ---
-        echo -e "🔄 [2/3] 尝试直连 GitHub..."
-        if git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 clone --depth 1 "$GIT_REPO_URL" "$temp_git_dir"; then
-            clone_success=1
+        # 4. 部署文件
+        if [ -d "$temp_git_dir/mihomo" ]; then
+            mkdir -p "$target_dir"
+            cp -rf "$temp_git_dir/mihomo/." "$target_dir/"
+            chmod -R 755 "$target_dir"
+            echo -e "📦 资源已缓存至 /tmp/mihomo"
         else
-            echo -e "${RED}❌ 直连也失败了。${NC}"
-            
-            # --- 尝试 3: 手动输入代理 (新增功能) ---
-            echo -e "----------------------------------------"
-            echo -e "${YELLOW}检测到网络环境较差，无法自动下载资源。${NC}"
-            echo -e "请输入自定义代理前缀 (例如: https://mirror.ghproxy.com/ )"
-            echo -e "或者直接按回车跳过安装。"
-            # 使用 < /dev/tty 确保在管道模式下能读取键盘输入
-            read -p "👉 请输入代理地址: " custom_proxy < /dev/tty
-            
-            if [ -n "$custom_proxy" ]; then
-                echo -e "🔄 [3/3] 尝试使用自定义代理: ${custom_proxy} ..."
-                # 确保拼接 URL 格式正确
-                local full_url="${custom_proxy}${GIT_REPO_URL}"
-                # 去掉可能重复的 // (http://除外)
-                # full_url=$(echo "$full_url" | sed 's|(?<!:)//|/|g') 
-                
-                if git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 clone --depth 1 "$full_url" "$temp_git_dir"; then
-                    echo -e "${GREEN}✅ 自定义代理下载成功！${NC}"
-                    clone_success=1
-                else
-                    echo -e "${RED}❌ 自定义代理也无效。${NC}"
-                fi
-            fi
+            echo -e "${YELLOW}⚠️ 仓库下载成功但未包含 mihomo 目录${NC}"
         fi
-    fi
-
-    if [ "$clone_success" -eq 0 ]; then
-        echo -e "${RED}❌ 错误：所有下载方式均失败，跳过 mihomo 资源同步。${NC}"
-        rm -rf "$temp_git_dir"
-        return 1
-    fi
-
-    # 4. 部署文件
-    if [ -d "$temp_git_dir/mihomo" ]; then
-        mkdir -p "$target_dir"
-        cp -rf "$temp_git_dir/mihomo/." "$target_dir/"
-        chmod -R 755 "$target_dir"
-        echo -e "${GREEN}📦 资源已准备就绪${NC}"
     else
-        echo -e "${YELLOW}⚠️ 仓库结构异常，未找到 mihomo 目录。${NC}"
+        echo -e "${RED}❌ 资源下载失败！${NC}"
+        echo -e "原因可能是代理地址无效或网络超时。"
+        echo -e "建议重新运行脚本并选择其他通道。"
+        rm -rf "$temp_git_dir"
+        read -p "按回车键继续 (部分功能可能无法使用)..." < /dev/tty
+        return 1
     fi
 
     # 5. 清理
     rm -rf "$temp_git_dir"
-    echo -e "----------------------------------------"
 }
-
-# === 立即执行同步 ===
-sync_mihomo_folder
 
 # ==================== 2. 模块加载函数 ====================
 load_module() {
     local module_name="$1"
-    local remote_file="${REPO_URL}/core/${module_name}"
+    # 这里直接拼接 PROXY_PREFIX，不再进行二次探测，提高速度
+    local remote_file="${PROXY_PREFIX}${REPO_URL}/core/${module_name}"
     local local_file="${CACHE_DIR}/${module_name}"
 
     if [ "$1" != "update" ] && [ -s "$local_file" ]; then
         source "$local_file"
     else
-        echo -ne "下载模块: ${module_name} ... "
+        echo -ne "加载模块: ${module_name} ... "
         
-        # 优先尝试加速地址
-        if curl -s -f -o "$local_file" "https://ghproxy.net/${remote_file}"; then
+        if curl -s -f -o "$local_file" "$remote_file"; then
              echo -e "[\033[0;32mOK\033[0m]"
+             chmod +x "$local_file"
+             source "$local_file"
         else
-             # 备用直连
-             if ! curl -s -f -o "$local_file" "$remote_file"; then
-                echo -e "[\033[0;31mFail\033[0m]"
-                return 1
-             else
-                echo -e "[\033[0;32mOK (Direct)\033[0m]"
-             fi
+             echo -e "[\033[0;31mFail\033[0m]"
+             echo -e "${RED}❌ 无法下载模块: $remote_file${NC}"
+             return 1
         fi
-        
-        chmod +x "$local_file"
-        source "$local_file"
     fi
 }
 
+# ==================== 3. 脚本初始化流程 ====================
+
+# [Step 0] 如果传入了 update 参数，清理缓存
 if [ "$1" == "update" ]; then
     rm -rf "$CACHE_DIR"
     echo "缓存已清理..."
 fi
 
-# ==================== 3. 加载核心模块 ====================
+# [Step 1] 执行通道选择 (脚本入口)
+select_download_channel
+
+# [Step 2] 同步大文件资源
+sync_mihomo_folder
+
+# [Step 3] 加载核心库
 load_module "utils.sh"
 
 # 权限检查
@@ -152,6 +173,7 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
+# [Step 4] 加载业务模块
 load_module "docker_install.sh"
 load_module "mihomo.sh"
 load_module "bbr.sh"
@@ -166,7 +188,7 @@ load_module "disk.sh"
 load_module "monitor.sh"
 load_module "mount_clean.sh"
 
-# 如果 utils.sh 里有 configure_proxy，则调用
+# 初始化代理环境 (如果有)
 if command -v configure_proxy &> /dev/null; then
     configure_proxy
 fi
@@ -174,7 +196,8 @@ fi
 # ==================== 4. 快捷键管理 ====================
 manage_shortcut() {
     local install_path="/usr/local/bin/linux-toolbox"
-    local download_url="${REPO_URL}/main.sh" 
+    # 快捷键安装时，也使用当前选定的通道
+    local download_url="${PROXY_PREFIX}${REPO_URL}/main.sh" 
     local current_user_home="$HOME"
 
     echo -e "${BLUE}=== 快捷键管理 ===${NC}"
@@ -207,20 +230,17 @@ manage_shortcut() {
     read -p "请输入自定义快捷指令名称 (回车默认: box): " input_name < /dev/tty
     local link_name=${input_name:-box}
 
-    echo -e "正在安装到系统..."
-    if ! curl -s -f -o "$install_path" "https://ghproxy.net/${download_url}"; then
-         if ! curl -s -f -o "$install_path" "$download_url"; then
-            echo -e "${RED}❌ 下载失败${NC}"
-            return 1
-         fi
+    echo -e "正在下载最新脚本 (使用当前加速通道)..."
+    if curl -s -f -o "$install_path" "$download_url"; then
+        chmod +x "$install_path"
+        remove_command "$link_name"
+        ln -sf "$install_path" "/usr/bin/${link_name}"
+
+        echo -e "${GREEN}✅ 设置成功!${NC}"
+        echo -e "输入 ${YELLOW}${link_name}${NC} 即可启动。"
+    else
+        echo -e "${RED}❌ 下载失败，请检查当前选择的加速通道是否可用。${NC}"
     fi
-
-    chmod +x "$install_path"
-    remove_command "$link_name"
-    ln -sf "$install_path" "/usr/bin/${link_name}"
-
-    echo -e "${GREEN}✅ 设置成功!${NC}"
-    echo -e "输入 ${YELLOW}${link_name}${NC} 即可启动。"
     
     if [ "$link_name" != "box" ]; then
         if grep -q "alias box=" "${current_user_home}/.bashrc" 2>/dev/null || [ -f "/usr/bin/box" ]; then
@@ -235,7 +255,7 @@ manage_shortcut() {
 while true; do
     clear
     echo -e "${BLUE}====================================================${NC}"
-    echo -e "       🛠️  Armbian/Docker 工具箱 (v2.6 Proxy Fix)"
+    echo -e "       🛠️  Armbian/Docker 工具箱 (v3.0 全局加速版)"
     echo -e "${BLUE}====================================================${NC}"
     echo -e " ${GREEN}1.${NC} 安装/管理 Docker"
     echo -e " ${GREEN}2.${NC} 安装 Mihomo/Clash"
@@ -257,7 +277,6 @@ while true; do
     echo -e " ${GREEN}0.${NC} 退出"
     echo
     
-    # 输入重定向，防止跳过
     read -p "请输入选项 [0-14]: " choice < /dev/tty
 
     case "$choice" in
