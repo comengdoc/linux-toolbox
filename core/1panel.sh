@@ -8,5 +8,9 @@ function module_1panel() {
     fi
 
     echo -e "${YELLOW}正在拉取官方安装脚本...${NC}"
-    bash -c "$(curl -sSL https://resource.fit2cloud.com/1panel/package/v2/quick_start.sh)"
+    
+    # 【核心修复】
+    # 使用 < /dev/tty 强制将官方脚本的输入重定向回终端键盘
+    # 否则在 curl | bash 模式下，官方脚本无法读取用户的安装设置
+    bash <(curl -sSL https://resource.fit2cloud.com/1panel/package/v2/quick_start.sh) < /dev/tty
 }

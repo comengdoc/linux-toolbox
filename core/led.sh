@@ -23,24 +23,30 @@ function module_led_fix() {
     ls /sys/class/leds | xargs echo
     echo "----------------------------------------"
     
-    read -p "是否继续配置？(y/n) [n]: " START_OPT
+    # [修复] 增加 < /dev/tty
+    read -p "是否继续配置？(y/n) [n]: " START_OPT < /dev/tty
     if [[ "$START_OPT" != "y" ]]; then return; fi
 
     echo -e "\n${BLUE}>>> 步骤 1: 选择 LAN (内网) 接口绑定${NC}"
     echo "可用网卡: $(ls /sys/class/net | grep -v lo | xargs echo)"
-    read -p "输入 LAN 网卡名称 (默认 eth0, 跳过输入 n): " IFACE_LAN
+    
+    # [修复] 增加 < /dev/tty
+    read -p "输入 LAN 网卡名称 (默认 eth0, 跳过输入 n): " IFACE_LAN < /dev/tty
     if [[ "$IFACE_LAN" != "n" ]]; then
         IFACE_LAN=${IFACE_LAN:-eth0}
-        read -p "输入对应 LED 名称 (例如 green:lan): " LED_LAN
+        # [修复] 增加 < /dev/tty
+        read -p "输入对应 LED 名称 (例如 green:lan): " LED_LAN < /dev/tty
     else
         LED_LAN=""
     fi
 
     echo -e "\n${BLUE}>>> 步骤 2: 选择 WAN (外网) 接口绑定${NC}"
-    read -p "输入 WAN 网卡名称 (默认 eth1, 跳过输入 n): " IFACE_WAN
+    # [修复] 增加 < /dev/tty
+    read -p "输入 WAN 网卡名称 (默认 eth1, 跳过输入 n): " IFACE_WAN < /dev/tty
     if [[ "$IFACE_WAN" != "n" ]]; then
         IFACE_WAN=${IFACE_WAN:-eth1}
-        read -p "输入对应 LED 名称 (例如 green:wan): " LED_WAN
+        # [修复] 增加 < /dev/tty
+        read -p "输入对应 LED 名称 (例如 green:wan): " LED_WAN < /dev/tty
     else
         LED_WAN=""
     fi

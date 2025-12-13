@@ -6,7 +6,9 @@ function module_clean_docker() {
     echo "1) 🔍 模拟运行 (Dry-Run) - 仅列出将要删除的内容"
     echo "2) 💣 执行清理 (Execute) - 真的动手删除"
     echo "0) 🔙 取消"
-    read -p "请选择模式 [1/2/0]: " MODE
+    
+    # [修复] 增加 < /dev/tty
+    read -p "请选择模式 [1/2/0]: " MODE < /dev/tty
 
     if [ "$MODE" == "0" ]; then return; fi
 
@@ -37,10 +39,13 @@ function module_clean_docker() {
 
     if [ "$MODE" == "2" ]; then
         echo -e "${RED}!!! 最终确认 !!!${NC}"
-        read -p "输入 'yes' 确认立即清理: " CONFIRM
+        
+        # [修复] 增加 < /dev/tty
+        read -p "输入 'yes' 确认立即清理: " CONFIRM < /dev/tty
         if [ "$CONFIRM" != "yes" ]; then echo "操作取消。"; return; fi
 
-        read -p "是否同时删除所有镜像？(y/n) [n]: " DEL_IMAGES
+        # [修复] 增加 < /dev/tty
+        read -p "是否同时删除所有镜像？(y/n) [n]: " DEL_IMAGES < /dev/tty
 
         echo -e "\n${YELLOW}>>> 1. 删除容器...${NC}"
         if [ -n "$CONTAINERS" ]; then

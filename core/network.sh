@@ -2,15 +2,15 @@
 function module_netmgr() {
     if ! command -v nmcli &> /dev/null; then echo -e "${RED}未检测到 nmcli，无法管理网络。${NC}"; return 1; fi
     
-    # 自动尝试检测主网卡
     DETECTED_IFACE=$(ip route | grep default | awk '{print $5}' | head -n1)
-    # 如果没联网，尝试找第一个非 lo 的网卡
     [ -z "$DETECTED_IFACE" ] && DETECTED_IFACE=$(ls /sys/class/net | grep -v lo | head -n1)
     
     echo -e "${BLUE}>>> 目标网卡确认${NC}"
     echo "系统检测到的默认网卡: ${GREEN}${DETECTED_IFACE}${NC}"
     echo -e "可用网卡列表: $(ls /sys/class/net | grep -v lo | tr '\n' ' ')"
-    read -p "请确认操作网卡 (直接回车使用 ${DETECTED_IFACE}): " USER_IFACE
+    
+    # [修复] 增加 < /dev/tty
+    read -p "请确认操作网卡 (直接回车使用 ${DETECTED_IFACE}): " USER_IFACE < /dev/tty
     
     DEFAULT_IFACE=${USER_IFACE:-$DETECTED_IFACE}
     
@@ -60,7 +60,9 @@ EOF
             echo -e "${GREEN}✅ 网络已重启。${NC}"
             echo -e "${RED}!!! 关键步骤 !!!${NC}"
             echo -e "如果你能看到这句话，说明网络正常。"
-            read -p "请在 60秒 内输入 'y' 确认保留配置，否则将自动回滚: " CONFIRM
+            
+            # [修复] 增加 < /dev/tty
+            read -p "请在 60秒 内输入 'y' 确认保留配置，否则将自动回滚: " CONFIRM < /dev/tty
             
             if [ "$CONFIRM" == "y" ] || [ "$CONFIRM" == "Y" ]; then
                 kill $WATCHDOG_PID 2>/dev/null
@@ -76,7 +78,9 @@ EOF
         fi
         wait $WATCHDOG_PID 2>/dev/null
         rm -f /tmp/nm_backup.nmconnection /tmp/revert_net.sh
-        read -p "按回车继续..."
+        
+        # [修复] 增加 < /dev/tty
+        read -p "按回车继续..." < /dev/tty
     }
 
     set_dhcp() {
@@ -86,10 +90,12 @@ EOF
 
     set_static() {
         current_ip=$(ip -4 addr show $DEFAULT_IFACE | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n1)
-        read -p "IP ($current_ip): " input_ip; input_ip=${input_ip:-$current_ip}
-        read -p "Mask (24): " input_mask; input_mask=${input_mask:-24}
-        read -p "Gateway: " input_gw
-        read -p "DNS1 (223.5.5.5): " input_dns1; input_dns1=${input_dns1:-223.5.5.5}
+        
+        # [修复] 增加 < /dev/tty (所有输入项)
+        read -p "IP ($current_ip): " input_ip < /dev/tty; input_ip=${input_ip:-$current_ip}
+        read -p "Mask (24): " input_mask < /dev/tty; input_mask=${input_mask:-24}
+        read -p "Gateway: " input_gw < /dev/tty
+        read -p "DNS1 (223.5.5.5): " input_dns1 < /dev/tty; input_dns1=${input_dns1:-223.5.5.5}
         
         if [[ ! $input_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "IP格式错误"; return; fi
         
@@ -103,11 +109,13 @@ EOF
         echo "2) 设为 Static IP (静态地址) [带防失联保护]"
         echo "3) Ping 测试"
         echo "4) 返回主菜单"
-        read -p "选择: " choice
+        
+        # [修复] 增加 < /dev/tty
+        read -p "选择: " choice < /dev/tty
         case $choice in
             1) set_dhcp ;;
             2) set_static ;;
-            3) ping -c 4 223.5.5.5; read -p "按回车..." ;;
+            3) ping -c 4 223.5.5.5; read -p "按回车..." < /dev/tty ;;
             4) break ;;
         esac
     done

@@ -80,7 +80,8 @@ EOF
     }
 
     check_bbr || {
-        read -p "是否要启用 BBR？(y/n): " choice
+        # [修复] 增加 < /dev/tty
+        read -p "是否要启用 BBR？(y/n): " choice < /dev/tty
         if [ "$choice" = "y" ] || [ "$choice" = "Y" ]; then
             enable_bbr
         else

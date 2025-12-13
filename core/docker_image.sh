@@ -35,7 +35,9 @@ function module_docker_image_tool() {
             IMAGES+=("$NAME"); ((INDEX++))
         done
         echo "----------------------------------------"
-        read -p "请输入备份编号 (空格分隔, 或 all): " SELECTION
+        
+        # [修复] 增加 < /dev/tty
+        read -p "请输入备份编号 (空格分隔, 或 all): " SELECTION < /dev/tty
         if [ -z "$SELECTION" ]; then return; fi
 
         SELECTED_IMAGES=()
@@ -75,7 +77,9 @@ function module_docker_image_tool() {
             printf "%2d) %s\n" "$INDEX" "$(basename "$FILE")"
             ((INDEX++))
         done
-        read -p "请输入恢复编号 (空格分隔, 或 all): " SELECTION
+        
+        # [修复] 增加 < /dev/tty
+        read -p "请输入恢复编号 (空格分隔, 或 all): " SELECTION < /dev/tty
         if [ -z "$SELECTION" ]; then return; fi
 
         SELECTED_FILES=()
@@ -112,7 +116,9 @@ function module_docker_image_tool() {
         echo "1) 备份镜像"
         echo "2) 恢复镜像"
         echo "3) 返回主菜单"
-        read -p "请选择: " CHOICE
+        
+        # [修复] 增加 < /dev/tty
+        read -p "请选择: " CHOICE < /dev/tty
         case $CHOICE in
             1) backup_images ;;
             2) restore_images ;;

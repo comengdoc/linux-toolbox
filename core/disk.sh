@@ -40,7 +40,9 @@ function module_disk_manager() {
         echo -e "${BLUE}6) 管理 SWAP (虚拟内存)${NC}"
         echo "0) 返回主菜单"
         echo -e "========================================"
-        read -p "请输入选项编号: " choice
+        
+        # [修复] 增加 < /dev/tty
+        read -p "请输入选项编号: " choice < /dev/tty
 
         case $choice in
             1)
@@ -64,7 +66,8 @@ function module_disk_manager() {
                     echo -e "$((i+1))) ${disks[$i]}"
                 done
                 
-                read -p "请选择要分区的磁盘 (输入0返回): " idx
+                # [修复] 增加 < /dev/tty
+                read -p "请选择要分区的磁盘 (输入0返回): " idx < /dev/tty
                 [[ "$idx" == "0" ]] && continue
                 if ! [[ "$idx" =~ ^[0-9]+$ ]] || [[ "$idx" -gt "${#disks[@]}" ]]; then
                     echo "无效编号。"
@@ -83,12 +86,16 @@ function module_disk_manager() {
                 echo "2) 自定义多个分区 (清空数据)"
                 echo "3) 进入 fdisk 手动分区"
                 echo "0) 返回"
-                read -p "请输入编号: " mode
+                
+                # [修复] 增加 < /dev/tty
+                read -p "请输入编号: " mode < /dev/tty
                 [[ "$mode" == "0" ]] && continue
 
                 if [[ "$mode" == "1" ]]; then
                     echo -e "${RED}⚠️  警告：将清空 $disk 所有数据并创建一个完整分区！${NC}"
-                    read -p "确认请输入 YES (输入其他取消): " confirm
+                    
+                    # [修复] 增加 < /dev/tty
+                    read -p "确认请输入 YES (输入其他取消): " confirm < /dev/tty
                     if [[ "$confirm" == "YES" ]]; then
                         parted --script "$disk" mklabel gpt
                         parted --script "$disk" mkpart primary ext4 0% 100%
@@ -99,10 +106,14 @@ function module_disk_manager() {
                     fi
                 elif [[ "$mode" == "2" ]]; then
                     echo -e "${RED}⚠️  警告：将清空 $disk 所有数据并重新分区！${NC}"
-                    read -p "确认请输入 YES (输入其他取消): " confirm
+                    
+                    # [修复] 增加 < /dev/tty
+                    read -p "确认请输入 YES (输入其他取消): " confirm < /dev/tty
                     if [[ "$confirm" == "YES" ]]; then
                         parted --script "$disk" mklabel gpt
-                        read -p "请输入要创建的分区数量 (输入0返回): " num_parts
+                        
+                        # [修复] 增加 < /dev/tty
+                        read -p "请输入要创建的分区数量 (输入0返回): " num_parts < /dev/tty
                         [[ "$num_parts" == "0" ]] && continue
                         
                         start=0
@@ -113,7 +124,8 @@ function module_disk_manager() {
 
                         for ((i=1; i<=num_parts; i++)); do
                             if [[ $i -lt $num_parts ]]; then
-                                read -p "请输入第 $i 个分区大小 (单位 GB, 输入0返回): " size
+                                # [修复] 增加 < /dev/tty
+                                read -p "请输入第 $i 个分区大小 (单位 GB, 输入0返回): " size < /dev/tty
                                 [[ "$size" == "0" ]] && continue 2
                                 end=$((start + size))
                                 echo "创建分区 $i: ${start}GB - ${end}GB"
@@ -160,7 +172,8 @@ function module_disk_manager() {
                     echo -e "$((i+1))) ${display_devs[$i]}"
                 done
 
-                read -p "请输入要格式化的分区编号 (输入0返回): " idx
+                # [修复] 增加 < /dev/tty
+                read -p "请输入要格式化的分区编号 (输入0返回): " idx < /dev/tty
                 [[ "$idx" == "0" ]] && continue
                 if ! [[ "$idx" =~ ^[0-9]+$ ]] || [[ "$idx" -gt "${#real_devs[@]}" ]]; then
                     echo "无效编号。"
@@ -174,11 +187,14 @@ function module_disk_manager() {
                     continue
                 fi
 
-                read -p "请输入文件系统类型 (ext4/xfs/vfat, 默认 ext4): " fs
+                # [修复] 增加 < /dev/tty
+                read -p "请输入文件系统类型 (ext4/xfs/vfat, 默认 ext4): " fs < /dev/tty
                 fs=${fs:-ext4}
                 
                 echo -e "${RED}⚠️  严重警告：即将格式化 $dev ($fs)，所有数据将丢失！${NC}"
-                read -p "确认请输入 YES (输入其他取消): " confirm
+                
+                # [修复] 增加 < /dev/tty
+                read -p "确认请输入 YES (输入其他取消): " confirm < /dev/tty
                 if [[ "$confirm" == "YES" ]]; then
                     echo "正在格式化..."
                     if mkfs.$fs "$dev"; then
@@ -210,7 +226,8 @@ function module_disk_manager() {
                     echo -e "$((i+1))) ${display_devs[$i]}"
                 done
 
-                read -p "请输入编号: " idx
+                # [修复] 增加 < /dev/tty
+                read -p "请输入编号: " idx < /dev/tty
                 [[ "$idx" == "0" ]] && continue
                 if ! [[ "$idx" =~ ^[0-9]+$ ]] || [[ "$idx" -gt "${#real_devs[@]}" ]]; then
                     echo "无效编号。"
@@ -237,7 +254,8 @@ function module_disk_manager() {
                     recommended="/mnt/uuid-${uuid:0:8}"
                 fi
 
-                read -p "请输入挂载点目录 (默认: $recommended): " dir
+                # [修复] 增加 < /dev/tty
+                read -p "请输入挂载点目录 (默认: $recommended): " dir < /dev/tty
                 dir=${dir:-$recommended}
 
                 mkdir -p "$dir"
@@ -251,7 +269,9 @@ function module_disk_manager() {
                 echo "是否配置开机自动挂载 (/etc/fstab)？"
                 echo "1) 是 (智能添加，含 nofail)"
                 echo "2) 否"
-                read -p "请输入编号: " auto
+                
+                # [修复] 增加 < /dev/tty
+                read -p "请输入编号: " auto < /dev/tty
 
                 if [[ "$auto" == "1" ]]; then
                     if grep -q "UUID=$uuid" /etc/fstab; then
@@ -277,7 +297,8 @@ function module_disk_manager() {
                     echo "$((i+1))) ${devices[$i]}"
                 done
                 
-                read -p "请输入编号: " idx
+                # [修复] 增加 < /dev/tty
+                read -p "请输入编号: " idx < /dev/tty
                 [[ "$idx" == "0" ]] && continue
                 if ! [[ "$idx" =~ ^[0-9]+$ ]] || [[ "$idx" -gt "${#devices[@]}" ]]; then
                     echo "无效编号。"
@@ -294,7 +315,8 @@ function module_disk_manager() {
                     uuid=$(blkid -s UUID -o value "$dev")
                     if [[ -n "$uuid" ]]; then
                         if grep -q "$uuid" /etc/fstab; then
-                            read -p "发现 fstab 中存在配置，是否删除？(YES/NO): " del_fstab
+                            # [修复] 增加 < /dev/tty
+                            read -p "发现 fstab 中存在配置，是否删除？(YES/NO): " del_fstab < /dev/tty
                             if [[ "$del_fstab" == "YES" ]]; then
                                 backup_fstab
                                 tmp_fstab=$(mktemp)
@@ -309,7 +331,8 @@ function module_disk_manager() {
                         fi
                     fi
 
-                    read -p "是否删除空的挂载点目录 $dir? (YES/NO): " deldir
+                    # [修复] 增加 < /dev/tty
+                    read -p "是否删除空的挂载点目录 $dir? (YES/NO): " deldir < /dev/tty
                     if [[ "$deldir" == "YES" ]]; then
                         rmdir "$dir" 2>/dev/null && echo "已删除目录 $dir" || echo -e "${YELLOW}目录非空，已保留。${NC}"
                     fi
@@ -322,11 +345,15 @@ function module_disk_manager() {
                 echo "1) 创建/启用 SWAP 文件"
                 echo "2) 关闭/删除 SWAP 文件"
                 echo "0) 返回"
-                read -p "请输入选项: " swap_op
+                
+                # [修复] 增加 < /dev/tty
+                read -p "请输入选项: " swap_op < /dev/tty
 
                 if [[ "$swap_op" == "1" ]]; then
                     echo -e "${YELLOW}提示：通常建议大小为物理内存的 1-2 倍。${NC}"
-                    read -p "请输入 SWAP 大小 (单位 MB，例如 2048): " swap_size
+                    
+                    # [修复] 增加 < /dev/tty
+                    read -p "请输入 SWAP 大小 (单位 MB，例如 2048): " swap_size < /dev/tty
                     if [[ ! "$swap_size" =~ ^[0-9]+$ ]]; then echo "无效数字"; continue; fi
                     
                     swap_file="/swapfile"

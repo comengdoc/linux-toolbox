@@ -36,7 +36,8 @@ function configure_proxy() {
     echo -e "${YELLOW}提示: 代理地址通常以 https:// 开头${NC}"
     echo "----------------------------------------------------"
     
-    read -p "请输入代理地址 (直接回车使用默认，输入 'n' 不使用代理): " USER_INPUT
+    # [修复] 增加 < /dev/tty
+    read -p "请输入代理地址 (直接回车使用默认，输入 'n' 不使用代理): " USER_INPUT < /dev/tty
 
     if [ -z "$USER_INPUT" ]; then
         GH_PROXY="$DEFAULT_PROXY"

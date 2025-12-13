@@ -29,7 +29,8 @@ function module_docker_install() {
 
     uninstall_docker() {
         echo -e "${RED}⚠️  卸载 Docker 引擎${NC}"
-        read -p "保留数据 (/var/lib/docker)? [y/N] " keep_data
+        # [修复] 增加 < /dev/tty
+        read -p "保留数据 (/var/lib/docker)? [y/N] " keep_data < /dev/tty
         systemctl stop docker >/dev/null 2>&1
         apt-mark unhold docker-ce docker-ce-cli >/dev/null 2>&1
         apt-get purge -y --allow-change-held-packages docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras
@@ -75,7 +76,8 @@ function module_docker_install() {
                  echo "------------------------------------------------"
                  
                  while true; do
-                     read -p "请输入版本编号 (例如 1): " SELECT_NUM
+                     # [修复] 增加 < /dev/tty
+                     read -p "请输入版本编号 (例如 1): " SELECT_NUM < /dev/tty
                      if [[ "$SELECT_NUM" =~ ^[0-9]+$ ]] && [ "$SELECT_NUM" -ge 1 ] && [ "$SELECT_NUM" -le ${#VERSION_LIST[@]} ]; then
                          VER_STR="${VERSION_LIST[$((SELECT_NUM-1))]}"
                          echo -e "✅ 已选择版本: ${GREEN}${VER_STR}${NC}"
@@ -105,7 +107,9 @@ function module_docker_install() {
         echo -e "${YELLOW}提示：由于国内网络原因，建议配置加速器。${NC}"
         echo "请输入加速器地址 (例如: https://xxxx.mirror.aliyuncs.com)"
         echo "如果不知道，直接回车将使用【默认公共源】(可能不稳定)。"
-        read -p "地址: " USER_MIRROR
+        
+        # [修复] 增加 < /dev/tty
+        read -p "地址: " USER_MIRROR < /dev/tty
 
         if [ -n "$USER_MIRROR" ]; then
             if [[ "$USER_MIRROR" != http* ]]; then USER_MIRROR="https://${USER_MIRROR}"; fi
@@ -132,6 +136,8 @@ EOF
     echo "1) 安装/更新 Docker (默认最新版)"
     echo "2) 安装指定版本 Docker (选择版本)"
     echo "3) 卸载 Docker"
-    read -p "选择: " ch
+    
+    # [修复] 增加 < /dev/tty
+    read -p "选择: " ch < /dev/tty
     case $ch in 1) install_docker_core "latest" ;; 2) install_docker_core "select" ;; 3) uninstall_docker ;; esac
 }

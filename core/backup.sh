@@ -33,7 +33,9 @@ function module_backup() {
         TARGET_IDS[$INDEX]=$cid; TARGET_NAMES[$INDEX]=$cname; ((INDEX++))
     done <<< "$RAW_LIST"
     
-    read -p "输入编号 (空格分隔, 回车全选): " USER_CHOICE
+    # 【核心修复】增加 < /dev/tty 防止跳过
+    read -p "输入编号 (空格分隔, 回车全选): " USER_CHOICE < /dev/tty
+    
     if [[ -z "$USER_CHOICE" ]]; then
         CONTAINERS=$(docker ps -aq); ARCHIVE_NAME="backup_SLIM_${DATE}.tar.gz"
     else
@@ -68,8 +70,7 @@ function module_backup() {
         SKIP=0
         for ignore in "${IGNORE_PATHS[@]}"; do if [[ "$mount_path" == "$ignore"* ]]; then SKIP=1; break; fi; done
         if [ $SKIP -eq 0 ] && [ -e "$mount_path" ]; then 
-            # 移除开头的 / 以防止 tar 警告，但在 list 中保留用于后续处理
-            # 实际上 tar -C / 会处理绝对路径
+            # 移除开头的 / 以防止 tar 警告
             BACKUP_PATHS+=("$mount_path")
         fi
     done <<< "$RAW_MOUNTS"
@@ -78,9 +79,6 @@ function module_backup() {
     docker stop $CONTAINERS > /dev/null
     
     echo ">>> 开始打包 (结构优化版)..."
-    # [修复] 核心命令修改：
-    # 1. -C "$TEMP_YML_DIR" docker-compose.yml -> 把配置文件放在包的根目录
-    # 2. -C / "${BACKUP_PATHS[@]}" -> 把数据文件按绝对路径打包
     
     if command -v pigz >/dev/null; then
         tar "${EXCLUDE_RULES[@]}" --use-compress-program=pigz \
@@ -103,7 +101,6 @@ function module_backup() {
         echo -e "${GREEN}✅ 备份成功！${NC}"
         echo -e "文件: ${GREEN}$BACKUP_DIR/$ARCHIVE_NAME${NC}"
         echo -e "大小: $(du -h "$BACKUP_DIR/$ARCHIVE_NAME" | awk '{print $1}')"
-        echo -e "结构: docker-compose.yml 已置于包根目录，数据目录结构保持不变。"
     else
         echo -e "${RED}❌ 备份失败，未生成文件。${NC}"
     fi
