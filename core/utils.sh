@@ -25,7 +25,7 @@ function check_root() {
 # 代理配置函数
 function configure_proxy() {
     #在此处修改默认的硬编码代理
-    local DEFAULT_PROXY="https://ghproxy.net/"
+    local DEFAULT_PROXY="https://gh-proxy.com/"
     
     clear
     echo -e "${BLUE}====================================================${NC}"

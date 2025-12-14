@@ -28,7 +28,7 @@ select_download_channel() {
     echo -e "${BLUE}====================================================${NC}"
     echo -e "检测到您正在初始化工具箱，请选择下载加速通道："
     echo
-    echo -e " ${GREEN}1.${NC} 默认加速 (ghproxy.net)  ${YELLOW}[推荐国内用户]${NC}"
+    echo -e " ${GREEN}1.${NC} 默认加速 (gh-proxy.com)  ${YELLOW}[推荐国内用户]${NC}"
     echo -e " ${GREEN}2.${NC} GitHub 直连             ${YELLOW}[适合国外/已挂全局]${NC}"
     echo -e " ${GREEN}3.${NC} 手动输入加速地址        ${YELLOW}[自定义代理]${NC}"
     echo
@@ -40,7 +40,7 @@ select_download_channel() {
 
     case "$net_choice" in
         1)
-            PROXY_PREFIX="https://ghproxy.net/"
+            PROXY_PREFIX="https://gh-proxy.com/"
             echo -e "${GREEN}✅ 已选择: 默认加速通道${NC}"
             ;;
         2)
@@ -56,12 +56,12 @@ select_download_channel() {
                 PROXY_PREFIX="$custom_input"
                 echo -e "${GREEN}✅ 已选择: 自定义通道 ($PROXY_PREFIX)${NC}"
             else
-                PROXY_PREFIX="https://ghproxy.net/"
+                PROXY_PREFIX="https://gh-proxy.com/"
                 echo -e "${YELLOW}⚠️ 未输入，自动回退到默认加速通道${NC}"
             fi
             ;;
         *)
-            PROXY_PREFIX="https://ghproxy.net/"
+            PROXY_PREFIX="https://gh-proxy.com/"
             echo -e "${YELLOW}⚠️ 选项无效，自动使用默认加速通道${NC}"
             ;;
     esac
