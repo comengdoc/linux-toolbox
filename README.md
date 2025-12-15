@@ -15,5 +15,5 @@
 ## 如何使用
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/你的用户名/仓库名/main/main.sh)
+bash <(curl -s "https://raw.githubusercontent.com/comengdoc/linux-toolbox/main/main.sh?v=$(date +%s)")
 ``` 
