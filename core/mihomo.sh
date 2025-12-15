@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-# Mihomo 一键安装脚本 (修复菜单跳过 Bug 版 + 旁路由NAT修复)
+# Mihomo 一键安装脚本 (修复 NAT 规则失效版)
 # 适用设备: 斐讯N1, NanoPi R5C 等 ARM 架构设备
 # =========================================================
 
@@ -56,45 +56,34 @@ EOF
              fi
         fi
 
-        # --- Service 文件生成 (包含 TimeSync/GOGC/IP转发/NAT 优化) ---
+        # --- Service 文件生成 (修复逻辑：先等待网络，再使用 sed 提取网卡) ---
         cat > /etc/systemd/system/mihomo.service <<EOF
 [Unit]
 Description=mihomo Daemon, Another Clash Kernel.
-# 【关键】等待时间同步，防止 N1/R5C 断电重启后时间错误导致节点 SSL 握手失败
 After=network-online.target time-sync.target
 Wants=network-online.target time-sync.target
 
 [Service]
 Type=simple
-# 资源限制
 LimitNPROC=500
 LimitNOFILE=1000000
-
-# 【关键】内存优化：限制 Go 垃圾回收频率，防止小内存设备爆内存
 Environment="GOGC=20"
-
-# 必要的网络权限
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE
-
-# 崩溃自动重启
 Restart=always
 RestartSec=5
 
-# 【关键】旁路由核心：启动前强制开启 IP 转发
+# 【步骤 1】启动前强制开启 IP 转发
 ExecStartPre=/bin/bash -c 'echo 1 > /proc/sys/net/ipv4/ip_forward'
 
-# 【新增】自动添加 NAT 规则 (解决旁路由模式下局域网设备无法上网的问题)
-# 逻辑：自动获取默认路由网卡名 -> 检查是否存在 MASQUERADE 规则 -> 不存在则添加
-ExecStartPre=/bin/bash -c 'IFACE=\$(ip route show default | awk "/default/ {print \$5}"); if ! iptables -t nat -C POSTROUTING -o \$IFACE -j MASQUERADE 2>/dev/null; then iptables -t nat -A POSTROUTING -o \$IFACE -j MASQUERADE; fi'
-
-# 【关键】网络检测：循环等待默认路由就绪
+# 【步骤 2】网络检测：循环等待默认路由就绪 (先确保有网)
 ExecStartPre=/bin/bash -c 'for i in {1..20}; do if ip route show default | grep -q "default"; then echo "Network ready"; exit 0; fi; sleep 1; done; echo "Network not ready"; exit 1'
 
-# 启动命令
-ExecStart=$BIN_PATH -d $CONF_DIR
+# 【步骤 3】自动添加 NAT 规则 (核心修复)
+# 使用 sed 提取网卡名，避免 awk 的 $ 符号转义问题
+ExecStartPre=/bin/bash -c 'IFACE=\$(ip route show default | sed "s/.*dev \([^ ]*\).*/\1/"); IFACE=\${IFACE:-eth0}; if ! iptables -t nat -C POSTROUTING -o \$IFACE -j MASQUERADE 2>/dev/null; then iptables -t nat -A POSTROUTING -o \$IFACE -j MASQUERADE; fi'
 
-# 重载与日志
+ExecStart=$BIN_PATH -d $CONF_DIR
 ExecReload=/bin/kill -HUP \$MAINPID
 StandardOutput=journal
 StandardError=journal
@@ -102,7 +91,7 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 EOF
-        echo -e "${GREEN}✅ 已生成优化版服务配置 (含 NAT 自动修复)${NC}"
+        echo -e "${GREEN}✅ 已生成优化版服务配置 (NAT 逻辑已修复)${NC}"
 
         systemctl daemon-reload
         systemctl enable mihomo
