@@ -29,7 +29,7 @@ function module_nic_monitor() {
         if $has_tput; then tput cup 0 0; else clear; fi
 
         echo "============================================================================"
-        echo " 物理网卡全能监控 (刷新: ${INTERVAL}s) [按 Ctrl+C 返回主菜单]"
+        echo " 物理网卡全能监控 (刷新: ${INTERVAL}s) [按 '0' 或 Ctrl+C 返回主菜单]"
         echo "============================================================================"
         
         printf "%-16s %-10s %-10s %-8s %-12s %-12s\n" "Interface" "Speed" "Duplex" "Link" "Rx Rate" "Tx Rate"
@@ -90,7 +90,17 @@ function module_nic_monitor() {
         done
 
         if $has_tput; then tput ed; else echo ""; fi
-        sleep "$INTERVAL"
+        
+        # [核心优化] 使用带超时的 read 替代 sleep
+        # 这样在等待间隔时，如果用户输入 0 可以立即响应并退出，无需死等
+        # -t $INTERVAL: 等待超时时间等于刷新间隔
+        # -n 1: 读取1个字符
+        # -s: 不回显
+        read -t "$INTERVAL" -n 1 -s -p "" KEY < /dev/tty
+        if [[ "$KEY" == "0" ]]; then
+            echo -e "\n${YELLOW}正在停止监控并返回...${NC}"
+            break
+        fi
     done
     # 恢复Trap (虽然 return 会跳出函数，但好习惯保持)
     trap - SIGINT

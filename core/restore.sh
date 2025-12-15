@@ -19,10 +19,13 @@ function module_restore_smart() {
             *) echo -e "${RED}不支持的架构: $(uname -m)${NC}"; return 1 ;;
         esac
         
+        # 使用全局代理变量
+        local PROXY_PREFIX="${GH_PROXY:-https://ghproxy.net/}" 
         local FILE_NAME="yq_linux_${arch}"
+        
+        # 优化下载源列表，使用配置的代理
         local URL_LIST=(
-            "https://github.8725206.xyz:16666/https://github.com/mikefarah/yq/releases/latest/download/${FILE_NAME}"
-            "https://ghproxy.com/https://github.com/mikefarah/yq/releases/latest/download/${FILE_NAME}"
+            "${PROXY_PREFIX}https://github.com/mikefarah/yq/releases/latest/download/${FILE_NAME}"
             "https://github.com/mikefarah/yq/releases/latest/download/${FILE_NAME}"
         )
 
@@ -49,6 +52,12 @@ function module_restore_smart() {
     }
 
     echo -e "${BLUE}=== 智能恢复模式 (Smart Restore v3) ===${NC}"
+    echo "0) 返回主菜单"
+
+    # [新增] 在输入路径前检查是否返回
+    # [修复] 增加 < /dev/tty
+    read -p "按回车开始，或输入 0 返回: " START_OPT < /dev/tty
+    if [[ "$START_OPT" == "0" ]]; then return 0; fi
     
     ensure_yq || return 1
 
@@ -101,9 +110,10 @@ function module_restore_smart() {
     echo "1) 🚀 恢复【全部】容器 (硬重置：清空旧环境)"
     echo "2) 🎯 恢复【指定】容器 (软覆盖：不删旧环境)"
     echo "3) 📂 仅解压数据 (不启动)"
+    echo "0) 🔙 返回上一级"
     
     # [修复] 增加 < /dev/tty
-    read -p "请选择 [1-3]: " MODE_OPT < /dev/tty
+    read -p "请选择 [0-3]: " MODE_OPT < /dev/tty
 
     TARGET_SERVICES=""; CLEAN_ENV=false; DO_START=true
 
@@ -111,7 +121,9 @@ function module_restore_smart() {
         1) CLEAN_ENV=true; TARGET_SERVICES="" ;;
         2)
             # [修复] 增加 < /dev/tty
-            read -p "输入编号 (空格分隔, 或 all): " SELECTED_IDXS < /dev/tty
+            read -p "输入编号 (空格分隔, all 全选, 0 返回): " SELECTED_IDXS < /dev/tty
+            if [[ "$SELECTED_IDXS" == "0" ]]; then rm -rf "$ANALYSIS_DIR"; return 0; fi # [新增] 指定容器选择返回
+            
             if [[ "$SELECTED_IDXS" == "all" || "$SELECTED_IDXS" == "a" ]]; then
                 TARGET_SERVICES=""
             else
@@ -125,6 +137,7 @@ function module_restore_smart() {
             fi
             ;;
         3) DO_START=false ;;
+        0) rm -rf "$ANALYSIS_DIR"; return 0 ;; # [新增] 模式选择返回
         *) echo "无效选项"; rm -rf "$ANALYSIS_DIR"; return 1 ;;
     esac
     rm -rf "$ANALYSIS_DIR"

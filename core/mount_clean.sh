@@ -18,6 +18,12 @@ function module_mount_cleaner() {
     echo -e "${YELLOW}功能：扫描容器挂载的 Bind Mounts 并清理宿主机文件。${NC}"
     echo -e "${YELLOW}安全机制：自动忽略 .sock 文件及系统关键目录。${NC}"
     echo
+    echo "1) 开始扫描"
+    echo "0) 返回主菜单"
+    
+    # [新增] 增加 0 返回选项
+    read -p "请选择: " START_OPT < /dev/tty
+    if [[ "$START_OPT" == "0" ]]; then return; fi
 
     if ! docker info > /dev/null 2>&1; then
         echo -e "${RED}错误：无法连接到 Docker 守护进程。${NC}"
@@ -109,7 +115,7 @@ function module_mount_cleaner() {
 
     echo -e "\n${RED}!!! 最终确认 !!!${NC}"
     echo "上述 ${RED}红色路径${NC} 内的所有数据将丢失且无法恢复。"
-    echo -e "若要继续，请输入大写的 ${RED}DELETE${NC} (否则按任意键取消):"
+    echo -e "若要继续，请输入大写的 ${RED}DELETE${NC} (输入 0 或其他内容取消):"
     
     # [修复] 增加 < /dev/tty
     read -p "请输入: " CONFIRM < /dev/tty

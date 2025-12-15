@@ -5,7 +5,7 @@ function module_clean_docker() {
     echo "----------------------------------------"
     echo "1) 🔍 模拟运行 (Dry-Run) - 仅列出将要删除的内容"
     echo "2) 💣 执行清理 (Execute) - 真的动手删除"
-    echo "0) 🔙 取消"
+    echo "0) 返回主菜单"
     
     # [修复] 增加 < /dev/tty
     read -p "请选择模式 [1/2/0]: " MODE < /dev/tty
@@ -41,7 +41,9 @@ function module_clean_docker() {
         echo -e "${RED}!!! 最终确认 !!!${NC}"
         
         # [修复] 增加 < /dev/tty
-        read -p "输入 'yes' 确认立即清理: " CONFIRM < /dev/tty
+        # [优化] 增加0退出
+        read -p "输入 'yes' 确认立即清理 (输入 0 返回): " CONFIRM < /dev/tty
+        if [ "$CONFIRM" == "0" ]; then return; fi
         if [ "$CONFIRM" != "yes" ]; then echo "操作取消。"; return; fi
 
         # [修复] 增加 < /dev/tty

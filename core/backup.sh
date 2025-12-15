@@ -34,8 +34,14 @@ function module_backup() {
     done <<< "$RAW_LIST"
     
     # 【核心修复】增加 < /dev/tty 防止跳过
-    read -p "输入编号 (空格分隔, 回车全选): " USER_CHOICE < /dev/tty
+    # [新增] 提示文字增加 0返回
+    read -p "输入编号 (空格分隔, 回车全选, 输入 0 返回): " USER_CHOICE < /dev/tty
     
+    # [新增] 处理返回逻辑
+    if [[ "$USER_CHOICE" == "0" ]]; then
+        return 0
+    fi
+
     if [[ -z "$USER_CHOICE" ]]; then
         CONTAINERS=$(docker ps -aq); ARCHIVE_NAME="backup_SLIM_${DATE}.tar.gz"
     else

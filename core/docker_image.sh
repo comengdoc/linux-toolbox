@@ -37,8 +37,11 @@ function module_docker_image_tool() {
         echo "----------------------------------------"
         
         # [修复] 增加 < /dev/tty
-        read -p "请输入备份编号 (空格分隔, 或 all): " SELECTION < /dev/tty
-        if [ -z "$SELECTION" ]; then return; fi
+        # [新增] 0返回提示
+        read -p "请输入备份编号 (空格分隔, all 全选, 0 返回): " SELECTION < /dev/tty
+        
+        # [新增] 处理返回
+        if [ -z "$SELECTION" ] || [ "$SELECTION" == "0" ]; then return; fi
 
         SELECTED_IMAGES=()
         if [ "$SELECTION" == "all" ]; then SELECTED_IMAGES=("${IMAGES[@]}"); else
@@ -79,8 +82,11 @@ function module_docker_image_tool() {
         done
         
         # [修复] 增加 < /dev/tty
-        read -p "请输入恢复编号 (空格分隔, 或 all): " SELECTION < /dev/tty
-        if [ -z "$SELECTION" ]; then return; fi
+        # [新增] 0返回提示
+        read -p "请输入恢复编号 (空格分隔, all 全选, 0 返回): " SELECTION < /dev/tty
+        
+        # [新增] 处理返回
+        if [ -z "$SELECTION" ] || [ "$SELECTION" == "0" ]; then return; fi
 
         SELECTED_FILES=()
         if [ "$SELECTION" == "all" ]; then SELECTED_FILES=("${FILES[@]}"); else
@@ -115,14 +121,14 @@ function module_docker_image_tool() {
         echo -e "\n=== Docker 镜像工具 (存放: $BACKUP_DIR) ==="
         echo "1) 备份镜像"
         echo "2) 恢复镜像"
-        echo "3) 返回主菜单"
+        echo "0) 返回主菜单"
         
         # [修复] 增加 < /dev/tty
         read -p "请选择: " CHOICE < /dev/tty
         case $CHOICE in
             1) backup_images ;;
             2) restore_images ;;
-            3) trap - SIGINT; break ;;
+            0) trap - SIGINT; break ;;
             *) echo "输入无效" ;;
         esac
     done

@@ -81,7 +81,14 @@ EOF
 
     check_bbr || {
         # [修复] 增加 < /dev/tty
-        read -p "是否要启用 BBR？(y/n): " choice < /dev/tty
+        # [新增] 提示文字增加 0返回
+        read -p "是否要启用 BBR？(y/n, 输入 0 返回): " choice < /dev/tty
+        
+        # [新增] 处理返回逻辑
+        if [[ "$choice" == "0" ]]; then
+            return 0
+        fi
+
         if [ "$choice" = "y" ] || [ "$choice" = "Y" ]; then
             enable_bbr
         else

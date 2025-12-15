@@ -232,6 +232,7 @@ EOF
     echo "3. 部署仓库版本 (推荐！使用本地/仓库文件)"
     echo "4. 服务管理 (启动/停止/日志)"
     echo -e "${RED}5. 卸载 Mihomo${NC}"
+    echo "0. 返回主菜单"
     
     # 【修复点 6 - 关键】增加 < /dev/tty，防止菜单秒退
     read -p "请选择: " OPT < /dev/tty
@@ -252,6 +253,7 @@ EOF
             esac
             ;;
         5) uninstall_mihomo ;;
+        0) return ;;
         *) echo "无效选择" ;;
     esac
 }

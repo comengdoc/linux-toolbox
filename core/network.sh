@@ -10,8 +10,11 @@ function module_netmgr() {
     echo -e "可用网卡列表: $(ls /sys/class/net | grep -v lo | tr '\n' ' ')"
     
     # [修复] 增加 < /dev/tty
-    read -p "请确认操作网卡 (直接回车使用 ${DETECTED_IFACE}): " USER_IFACE < /dev/tty
+    # [新增] 提示 0 返回
+    read -p "请确认操作网卡 (回车使用 ${DETECTED_IFACE}, 输入 0 返回): " USER_IFACE < /dev/tty
     
+    if [[ "$USER_IFACE" == "0" ]]; then return 0; fi
+
     DEFAULT_IFACE=${USER_IFACE:-$DETECTED_IFACE}
     
     CON_NAME=$(nmcli -t -f NAME,DEVICE connection show --active | grep ":${DEFAULT_IFACE}" | cut -d: -f1 | head -n1)
@@ -108,7 +111,7 @@ EOF
         echo -e "\n1) 设为 DHCP (自动获取)"
         echo "2) 设为 Static IP (静态地址) [带防失联保护]"
         echo "3) Ping 测试"
-        echo "4) 返回主菜单"
+        echo "0) 返回主菜单"
         
         # [修复] 增加 < /dev/tty
         read -p "选择: " choice < /dev/tty
@@ -116,7 +119,7 @@ EOF
             1) set_dhcp ;;
             2) set_static ;;
             3) ping -c 4 223.5.5.5; read -p "按回车..." < /dev/tty ;;
-            4) break ;;
+            0) break ;;
         esac
     done
 }

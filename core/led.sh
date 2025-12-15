@@ -24,7 +24,11 @@ function module_led_fix() {
     echo "----------------------------------------"
     
     # [修复] 增加 < /dev/tty
-    read -p "是否继续配置？(y/n) [n]: " START_OPT < /dev/tty
+    # [新增] 0返回提示
+    read -p "是否继续配置？(y/n, 输入 0 返回) [n]: " START_OPT < /dev/tty
+    
+    # [新增] 处理返回
+    if [[ "$START_OPT" == "0" ]]; then return; fi
     if [[ "$START_OPT" != "y" ]]; then return; fi
 
     echo -e "\n${BLUE}>>> 步骤 1: 选择 LAN (内网) 接口绑定${NC}"

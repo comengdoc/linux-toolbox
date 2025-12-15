@@ -227,7 +227,8 @@ function module_disk_manager() {
                 done
 
                 # [修复] 增加 < /dev/tty
-                read -p "请输入编号: " idx < /dev/tty
+                # [新增] 补充文字提示 0返回
+                read -p "请输入编号 (输入0返回): " idx < /dev/tty
                 [[ "$idx" == "0" ]] && continue
                 if ! [[ "$idx" =~ ^[0-9]+$ ]] || [[ "$idx" -gt "${#real_devs[@]}" ]]; then
                     echo "无效编号。"
@@ -298,7 +299,8 @@ function module_disk_manager() {
                 done
                 
                 # [修复] 增加 < /dev/tty
-                read -p "请输入编号: " idx < /dev/tty
+                # [新增] 补充文字提示 0返回
+                read -p "请输入编号 (输入0返回): " idx < /dev/tty
                 [[ "$idx" == "0" ]] && continue
                 if ! [[ "$idx" =~ ^[0-9]+$ ]] || [[ "$idx" -gt "${#devices[@]}" ]]; then
                     echo "无效编号。"
@@ -402,6 +404,8 @@ function module_disk_manager() {
                     else
                         echo -e "${GREEN}SWAP 文件已删除。${NC}"
                     fi
+                elif [[ "$swap_op" == "0" ]]; then
+                     continue
                 fi
                 ;;
             0)

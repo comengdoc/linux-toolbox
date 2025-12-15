@@ -77,7 +77,11 @@ function module_docker_install() {
                  
                  while true; do
                      # [修复] 增加 < /dev/tty
-                     read -p "请输入版本编号 (例如 1): " SELECT_NUM < /dev/tty
+                     # [新增] 0返回提示
+                     read -p "请输入版本编号 (例如 1, 输入 0 返回): " SELECT_NUM < /dev/tty
+                     
+                     if [ "$SELECT_NUM" == "0" ]; then return; fi
+                     
                      if [[ "$SELECT_NUM" =~ ^[0-9]+$ ]] && [ "$SELECT_NUM" -ge 1 ] && [ "$SELECT_NUM" -le ${#VERSION_LIST[@]} ]; then
                          VER_STR="${VERSION_LIST[$((SELECT_NUM-1))]}"
                          echo -e "✅ 已选择版本: ${GREEN}${VER_STR}${NC}"
@@ -136,8 +140,14 @@ EOF
     echo "1) 安装/更新 Docker (默认最新版)"
     echo "2) 安装指定版本 Docker (选择版本)"
     echo "3) 卸载 Docker"
+    echo "0) 返回主菜单"
     
     # [修复] 增加 < /dev/tty
     read -p "选择: " ch < /dev/tty
-    case $ch in 1) install_docker_core "latest" ;; 2) install_docker_core "select" ;; 3) uninstall_docker ;; esac
+    case $ch in 
+        1) install_docker_core "latest" ;; 
+        2) install_docker_core "select" ;; 
+        3) uninstall_docker ;;
+        0) return ;;
+    esac
 }

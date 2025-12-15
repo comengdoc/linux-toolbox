@@ -33,6 +33,7 @@ select_download_channel() {
     echo -e " ${GREEN}3.${NC} 手动输入加速地址        ${YELLOW}[自定义代理]${NC}"
     echo
     echo -e "${BLUE}----------------------------------------------------${NC}"
+    # [修复] 增加 < /dev/tty
     read -p "请选择 [1-3] (默认 1): " net_choice < /dev/tty
     
     # 默认选 1
@@ -51,9 +52,15 @@ select_download_channel() {
             echo
             echo -e "请输入代理前缀 (例如: https://git.886.be/ )"
             echo -e "注意: 输入的地址结尾必须带 / (或者留空取消)"
+            # [修复] 增加 < /dev/tty
             read -p "👉 地址: " custom_input < /dev/tty
             if [ -n "$custom_input" ]; then
-                PROXY_PREFIX="$custom_input"
+                # 自动处理结尾的斜杠，防止拼接错误
+                if [[ "$custom_input" != */ ]]; then
+                    PROXY_PREFIX="${custom_input}/"
+                else
+                    PROXY_PREFIX="$custom_input"
+                fi
                 echo -e "${GREEN}✅ 已选择: 自定义通道 ($PROXY_PREFIX)${NC}"
             else
                 PROXY_PREFIX="https://gh-proxy.com/"
@@ -117,6 +124,7 @@ sync_mihomo_folder() {
         echo -e "${RED}❌ 资源下载失败！${NC}"
         echo -e "原因可能是代理地址无效或网络超时。"
         echo -e "建议重新运行脚本并选择其他通道。"
+        # [修复] 增加 < /dev/tty
         rm -rf "$temp_git_dir"
         read -p "按回车键继续 (部分功能可能无法使用)..." < /dev/tty
         return 1
@@ -204,6 +212,7 @@ manage_shortcut() {
     echo "1. 设置/更新 快捷键"
     echo "2. 删除 快捷键"
     echo "0. 返回"
+    # [修复] 增加 < /dev/tty
     read -p "请选择: " action < /dev/tty
 
     remove_command() {
@@ -217,6 +226,7 @@ manage_shortcut() {
     }
 
     if [ "$action" == "2" ]; then
+        # [修复] 增加 < /dev/tty
         read -p "请输入要删除的指令名称 (默认: box): " del_name < /dev/tty
         local link_name=${del_name:-box}
         remove_command "$link_name"
@@ -224,9 +234,11 @@ manage_shortcut() {
         hash -r
         return
     elif [ "$action" != "1" ]; then
+        # 兼容 0 返回和无效输入返回
         return
     fi
 
+    # [修复] 增加 < /dev/tty
     read -p "请输入自定义快捷指令名称 (回车默认: box): " input_name < /dev/tty
     local link_name=${input_name:-box}
 
@@ -244,6 +256,7 @@ manage_shortcut() {
     
     if [ "$link_name" != "box" ]; then
         if grep -q "alias box=" "${current_user_home}/.bashrc" 2>/dev/null || [ -f "/usr/bin/box" ]; then
+            # [修复] 增加 < /dev/tty
             read -p "检测到旧的 'box' 指令，删除? [y/n]: " del_old < /dev/tty
             [[ "$del_old" == "y" ]] && remove_command "box"
         fi
@@ -274,9 +287,11 @@ while true; do
     echo -e " ${RED}13.${NC} Docker 挂载清理"
     echo -e "${BLUE}----------------------------------------------------${NC}"
     echo -e " ${GREEN}14.${NC} 管理快捷键"
-    echo -e " ${GREEN}0.${NC} 退出"
+    # [优化] 明确 0 的含义是退出脚本
+    echo -e " ${GREEN}0.${NC} 退出脚本"
     echo
     
+    # [修复] 增加 < /dev/tty
     read -p "请输入选项 [0-14]: " choice < /dev/tty
 
     case "$choice" in
@@ -299,5 +314,6 @@ while true; do
     esac
     
     echo
+    # [修复] 增加 < /dev/tty
     read -p "按回车键返回主菜单..." < /dev/tty
 done

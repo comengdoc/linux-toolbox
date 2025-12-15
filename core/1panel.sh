@@ -1,7 +1,15 @@
 #!/bin/bash
 function module_1panel() {
-    echo -e "${GREEN}>>> 准备安装 1Panel 服务器面板...${NC}"
+    echo -e "${GREEN}>>> 1Panel 服务器面板安装向导${NC}"
+    echo "1) 开始安装"
+    echo "0) 返回主菜单"
     
+    # [新增] 增加选择确认，防止误触，并提供返回入口
+    read -p "请选择操作: " choice < /dev/tty
+    if [[ "$choice" == "0" ]]; then
+        return 0
+    fi
+
     if ! command -v curl &> /dev/null; then
         echo -e "${YELLOW}未找到 curl，正在安装...${NC}"
         apt-get update -qq && apt-get install -y -qq curl
