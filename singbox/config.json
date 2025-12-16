@@ -240,32 +240,44 @@
     {
       "tag": "🇭🇰 香港手动",
       "type": "selector",
-      "outbounds": ["🚀 默认代理"]
+      "outbounds": [
+        "🚀 默认代理"
+      ]
     },
     {
       "tag": "🇯🇵 日本手动",
       "type": "selector",
-      "outbounds": ["🚀 默认代理"]
+      "outbounds": [
+        "🚀 默认代理"
+      ]
     },
     {
       "tag": "🇸🇬 狮城手动",
       "type": "selector",
-      "outbounds": ["🚀 默认代理"]
+      "outbounds": [
+        "🚀 默认代理"
+      ]
     },
     {
       "tag": "🇺🇲 美国手动",
       "type": "selector",
-      "outbounds": ["🚀 默认代理"]
+      "outbounds": [
+        "🚀 默认代理"
+      ]
     },
     {
       "tag": "🐸 手动选择",
       "type": "selector",
-      "outbounds": ["🚀 默认代理"]
+      "outbounds": [
+        "🚀 默认代理"
+      ]
     },
     {
       "tag": "♻️ 自动选择",
       "type": "urltest",
-      "outbounds": ["🚀 默认代理"],
+      "outbounds": [
+        "🚀 默认代理"
+      ],
       "interval": "10m",
       "tolerance": 100
     },
@@ -571,10 +583,12 @@
       "server": "public"
     }
   },
-  "cache_file": {
-    "enabled": true,
-    "path": "/etc/sing-box/cache.db",
-    "store_fakeip": true
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "/etc/sing-box/cache.db",
+      "store_fakeip": true
+    }
   },
   "clash_api": {
     "external_controller": "0.0.0.0:9095",
