@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# 模块化加载器 (Loader) - v3.1 (智能容错版)
+# 模块化加载器 (Loader) - v3.2 (极速启动版)
 # ==============================================================================
 
 # [基础配置]
@@ -67,7 +67,7 @@ select_download_channel() {
             echo -e "${YELLOW}⚠️ 选项无效，自动使用默认加速通道${NC}"
             ;;
     esac
-    sleep 1
+    sleep 0.5
 }
 
 # ==================== 1. 资源同步函数 (Mihomo) ====================
@@ -188,9 +188,11 @@ if [ "$1" == "update" ]; then
 fi
 
 select_download_channel
-sync_mihomo_folder
 
-# 加载基础库 (不检查特定函数)
+# [优化点] 移除原来的 sync_mihomo_folder 全局调用
+# 改为在菜单选项2中按需调用
+
+# 加载基础库 (只有 utils 是必须预加载的)
 load_module "utils.sh"
 
 if [ "$(id -u)" != "0" ]; then
@@ -198,22 +200,11 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
-# [预加载所有模块]
-# 即使这里部分失败，也不会报错退出，而是会在点击菜单时重试
-echo -e "${BLUE}>>> 正在预加载功能模块...${NC}"
-load_module "docker_install.sh" "module_docker_install"
-load_module "mihomo.sh"         "module_mihomo"
-load_module "bbr.sh"            "module_bbr"
-load_module "network.sh"        "module_netmgr"
-load_module "led.sh"            "module_led_fix"
-load_module "docker_image.sh"   "module_docker_image_tool"
-load_module "backup.sh"         "module_backup"
-load_module "restore.sh"        "module_restore_smart"
-load_module "docker_clean.sh"   "module_clean_docker"
-load_module "1panel.sh"         "module_1panel"
-load_module "disk.sh"           "module_disk_manager"
-load_module "monitor.sh"        "module_nic_monitor"
-load_module "mount_clean.sh"    "module_mount_cleaner"
+# [优化点] 移除了所有的模块预加载代码
+# 现在脚本启动速度极快，点击菜单时才会下载对应模块。
+
+echo -e "${GREEN}>>> 系统初始化完成，准备就绪。${NC}"
+sleep 0.5
 
 if command -v configure_proxy &> /dev/null; then
     configure_proxy
@@ -271,7 +262,7 @@ manage_shortcut() {
 while true; do
     clear
     echo -e "${BLUE}====================================================${NC}"
-    echo -e "       🛠️  Armbian/Docker 工具箱 (v3.1 智能容错版)"
+    echo -e "       🛠️  Armbian/Docker 工具箱 (v3.2 极速启动版)"
     echo -e "${BLUE}====================================================${NC}"
     echo -e " ${GREEN}1.${NC} 安装/管理 Docker"
     echo -e " ${GREEN}2.${NC} 安装 Mihomo/Clash"
@@ -298,7 +289,13 @@ while true; do
     # 使用 run_safe 包裹，确保运行时再次检查模块是否存在
     case "$choice" in
         1) run_safe "docker_install.sh" "module_docker_install" ;;
-        2) run_safe "mihomo.sh"         "module_mihomo" ;;
+        2) 
+           # [优化点] 将 Mihomo 资源同步移到这里，按需执行
+           sync_mihomo_folder
+           if [ $? -eq 0 ]; then
+               run_safe "mihomo.sh" "module_mihomo"
+           fi
+           ;;
         3) run_safe "bbr.sh"            "module_bbr" ;;
         4) run_safe "network.sh"        "module_netmgr" ;;
         5) run_safe "led.sh"            "module_led_fix" ;;
