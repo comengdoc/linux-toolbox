@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# 模块化加载器 (Loader) - v3.2 (极速启动版)
+# 模块化加载器 (Loader) - v3.3 (完美配合版)
 # ==============================================================================
 
 # [基础配置]
@@ -10,7 +10,7 @@ GIT_REPO_URL="https://github.com/comengdoc/linux-toolbox"
 CACHE_DIR="/tmp/toolbox_cache"
 mkdir -p "$CACHE_DIR"
 
-# [颜色定义]
+# [颜色定义] (仅保留最基础的，其他交给 utils 管理)
 BLUE='\033[0;34m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
@@ -81,6 +81,7 @@ sync_mihomo_folder() {
     rm -rf "$target_dir"
     rm -rf "$temp_git_dir"
 
+    # 简单检查 git 是否存在
     if ! command -v git &> /dev/null; then
         echo -ne "正在安装 git... "
         if [ -f /etc/openwrt_release ]; then
@@ -117,29 +118,25 @@ sync_mihomo_folder() {
     rm -rf "$temp_git_dir"
 }
 
-# ==================== 2. 核心：模块加载函数 (防崩坏版) ====================
-# 参数1: 脚本文件名 (例如 backup.sh)
-# 参数2: (可选) 脚本内的核心函数名 (例如 module_backup)，用于验证加载是否成功
+# ==================== 2. 核心：模块加载函数 ====================
 load_module() {
     local module_name="$1"
-    local func_check="$2"  # 新增：要检查的函数名
+    local func_check="$2"
     local remote_file="${PROXY_PREFIX}${REPO_URL}/core/${module_name}"
     local local_file="${CACHE_DIR}/${module_name}"
 
-    # 1. 内存检查：如果函数已经存在，直接返回成功 (秒开)
+    # 1. 内存检查 (秒开)
     if [ -n "$func_check" ] && declare -f "$func_check" > /dev/null; then
         return 0
     fi
 
-    # 2. 本地缓存检查：如果文件存在且不为空，尝试 source
+    # 2. 本地缓存检查
     if [ -s "$local_file" ]; then
         source "$local_file"
-        # Source 完再次检查函数是否存在
         if [ -n "$func_check" ] && declare -f "$func_check" > /dev/null; then
             return 0
         fi
-        # 如果 source 了文件但函数还是没有，说明文件可能损坏，删除之
-        rm -f "$local_file"
+        rm -f "$local_file" # 损坏则删除
     fi
 
     # 3. 下载流程
@@ -151,7 +148,6 @@ load_module() {
          # 4. 最终验证
          if [ -n "$func_check" ] && ! declare -f "$func_check" > /dev/null; then
              echo -e "[\033[0;31m内容错误\033[0m]"
-             echo -e "${RED}❌ 模块已下载但未检测到入口函数: ${func_check}${NC}"
              return 1
          fi
          
@@ -163,19 +159,17 @@ load_module() {
     fi
 }
 
-# 辅助函数：安全运行模块 (用于菜单)
+# 辅助函数：安全运行模块
 run_safe() {
     local script="$1"
     local func="$2"
     
-    # 尝试加载，如果失败则提示
     if load_module "$script" "$func"; then
         $func
     else
         echo
         echo -e "${RED}❌ 无法运行功能: $func${NC}"
         echo -e "${YELLOW}可能是网络波动导致模块下载失败。${NC}"
-        echo -e "建议：检查网络或更换加速通道后重试。"
         read -p "按回车键返回..." < /dev/tty
     fi
 }
@@ -189,26 +183,24 @@ fi
 
 select_download_channel
 
-# [优化点] 移除原来的 sync_mihomo_folder 全局调用
-# 改为在菜单选项2中按需调用
-
-# 加载基础库 (只有 utils 是必须预加载的)
-load_module "utils.sh"
-
-if [ "$(id -u)" != "0" ]; then
-    echo -e "${RED}请使用 Root 用户运行此脚本！${NC}"
+# [核心] 加载基础库
+# 如果这一步失败，脚本无法继续，所以这里可以加个判断
+if ! load_module "utils.sh" "sync_proxy_config"; then
+    echo -e "${RED}❌ 致命错误: 无法加载 utils.sh 基础库。请检查网络。${NC}"
     exit 1
 fi
 
-# [优化点] 移除了所有的模块预加载代码
-# 现在脚本启动速度极快，点击菜单时才会下载对应模块。
+# [调用 utils] 权限检查
+check_root
+
+# [调用 utils] 智能同步代理设置
+# 将 main.sh 选好的 PROXY_PREFIX 传递给 utils，避免重复询问
+if command -v sync_proxy_config &> /dev/null; then
+    sync_proxy_config "$PROXY_PREFIX"
+fi
 
 echo -e "${GREEN}>>> 系统初始化完成，准备就绪。${NC}"
 sleep 0.5
-
-if command -v configure_proxy &> /dev/null; then
-    configure_proxy
-fi
 
 # ==================== 4. 快捷键管理 ====================
 manage_shortcut() {
@@ -246,7 +238,7 @@ manage_shortcut() {
     read -p "请输入自定义快捷指令名称 (回车默认: box): " input_name < /dev/tty
     local link_name=${input_name:-box}
 
-    echo -e "正在下载最新脚本 (使用当前加速通道)..."
+    echo -e "正在下载最新脚本..."
     if curl -s -f -o "$install_path" "$download_url"; then
         chmod +x "$install_path"
         remove_command "$link_name"
@@ -254,7 +246,7 @@ manage_shortcut() {
         echo -e "${GREEN}✅ 设置成功!${NC}"
         echo -e "输入 ${YELLOW}${link_name}${NC} 即可启动。"
     else
-        echo -e "${RED}❌ 下载失败，请检查当前选择的加速通道是否可用。${NC}"
+        echo -e "${RED}❌ 下载失败，请检查网络。${NC}"
     fi
 }
 
@@ -262,7 +254,7 @@ manage_shortcut() {
 while true; do
     clear
     echo -e "${BLUE}====================================================${NC}"
-    echo -e "       🛠️  Armbian/Docker 工具箱 (v3.2 极速启动版)"
+    echo -e "       🛠️  Armbian/Docker 工具箱 (v3.3 极速启动版)"
     echo -e "${BLUE}====================================================${NC}"
     echo -e " ${GREEN}1.${NC} 安装/管理 Docker"
     echo -e " ${GREEN}2.${NC} 安装 Mihomo/Clash"
@@ -286,11 +278,10 @@ while true; do
     
     read -p "请输入选项 [0-14]: " choice < /dev/tty
 
-    # 使用 run_safe 包裹，确保运行时再次检查模块是否存在
     case "$choice" in
         1) run_safe "docker_install.sh" "module_docker_install" ;;
         2) 
-           # [优化点] 将 Mihomo 资源同步移到这里，按需执行
+           # [Mihomo 特殊处理] 先同步资源，成功后再加载模块
            sync_mihomo_folder
            if [ $? -eq 0 ]; then
                run_safe "mihomo.sh" "module_mihomo"
