@@ -284,7 +284,7 @@ while true; do
            # [Mihomo 特殊处理] 先同步资源，成功后再加载模块
            sync_mihomo_folder
            if [ $? -eq 0 ]; then
-               run_safe "mihomo.sh" "module_mihomo"
+               run_safe "mihomo_tun.sh" "module_mihomo"
            fi
            ;;
         3) run_safe "bbr.sh"            "module_bbr" ;;
