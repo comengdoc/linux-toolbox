@@ -101,16 +101,30 @@ EOF
         
         generate_network_script
 
-        # --- 配置文件处理 ---
+        # --- 配置文件处理 (修改重点) ---
+        # 如果目标目录(/etc/mihomo)里还没有配置文件
         if [ ! -f "$CONF_DIR/config.yaml" ]; then
-             if [ -f "$AUTO_DIR/config.yaml" ]; then
+             
+             # 【优先策略】 1. 先找仓库下载的 config_tun.yaml
+             if [ -f "$AUTO_DIR/config_tun.yaml" ]; then
+                 cp "$AUTO_DIR/config_tun.yaml" "$CONF_DIR/config.yaml"
+                 echo -e "${GREEN}✅ 已应用仓库文件: config_tun.yaml -> 重命名为 config.yaml${NC}"
+             
+             # 【优先策略】 2. 再找本地上传的 config_tun.yaml
+             elif [ -f "$MANUAL_DIR/config_tun.yaml" ]; then
+                 cp "$MANUAL_DIR/config_tun.yaml" "$CONF_DIR/config.yaml"
+                 echo -e "${GREEN}✅ 已应用本地文件: config_tun.yaml -> 重命名为 config.yaml${NC}"
+             
+             # 【保底策略】 3. 如果没有 tun 版，再找有没有普通的 config.yaml (兼容旧习惯)
+             elif [ -f "$AUTO_DIR/config.yaml" ]; then
                  cp "$AUTO_DIR/config.yaml" "$CONF_DIR/config.yaml"
                  echo -e "${GREEN}✅ 已应用仓库中的 config.yaml${NC}"
              elif [ -f "$MANUAL_DIR/config.yaml" ]; then
                  cp "$MANUAL_DIR/config.yaml" "$CONF_DIR/config.yaml"
                  echo -e "${GREEN}✅ 已应用本地 config.yaml${NC}"
+             
              else
-                 echo -e "${YELLOW}⚠️ 未检测到配置文件，生成空配置...${NC}"
+                 echo -e "${YELLOW}⚠️ 未检测到任何配置文件，生成空配置...${NC}"
                  touch "$CONF_DIR/config.yaml"
                  echo -e "${RED}⚠️ 请注意：你需要自行编辑 $CONF_DIR/config.yaml 填入订阅信息！${NC}"
              fi
