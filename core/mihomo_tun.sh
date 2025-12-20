@@ -5,6 +5,7 @@
 # 融合说明:
 # 1. 基础架构基于 M2 (确保 TUN 模式不环路，自动管理 NAT)
 # 2. 稳定性代码来自 M1 (时间同步保护、BBR、启动路由检测、菜单修复)
+# 3. 修复局域网 DNS 问题 (手动劫持 53 -> 1053)
 # =========================================================
 
 # 定义颜色
@@ -42,44 +43,68 @@ fs.inotify.max_user_watches=524288
 EOF
         sysctl --system >/dev/null 2>&1
         
+        # 这里同时也调用一次生成网络脚本，确保更新规则
+        generate_network_script
+
         echo -e "${GREEN}>>> 内核参数验证:${NC}"
         echo -n "转发状态: "; sysctl net.ipv4.ip_forward
         echo -n "防环路状态: "; sysctl net.ipv4.conf.all.src_valid_mark
         echo -n "拥塞控制: "; sysctl net.ipv4.tcp_congestion_control
-        echo -e "${GREEN}✅ 内核优化完成${NC}"
+        echo -e "${GREEN}✅ 内核优化及网络规则更新完成${NC}"
     }
 
-    # ==================== 辅助：网络保障脚本 (源自 M2) ====================
+    # ==================== 辅助：网络保障脚本 (已修复 DNS 问题) ====================
     generate_network_script() {
         echo -e "${BLUE}>>> 生成基础网络脚本 (${RULE_SCRIPT})...${NC}"
-        # 这个脚本负责在 Mihomo 启动时开启 NAT，保证局域网其他设备能上网
+        # 这个脚本负责在 Mihomo 启动时开启 NAT 和 DNS 劫持
         cat > "$RULE_SCRIPT" <<'EOF'
 #!/bin/bash
-# Mihomo 基础网络管理器
-# 作用: 开启 NAT (Masquerade)，确保作为网关时下游设备有网
+# Mihomo 基础网络管理器 (增强版)
+# 作用: 
+# 1. 开启 NAT (Masquerade)，确保作为网关时下游设备有网
+# 2. 开启 DNS 劫持 (53->1053)，解决 auto-redirect: false 时局域网设备无法解析的问题
 
+# 获取出口网卡
 IFACE=$(ip route show default | awk '/default/ {print $5}' | head -n1)
 
 enable_nat() {
-    echo "  - [Network] 检查基础 NAT 转发规则..."
-    # 强制刷新关键内核参数
+    echo "  - [Network] 正在应用网络规则 (NAT + DNS劫持)..."
+    
+    # 1. 强制开启转发
     sysctl -w net.ipv4.ip_forward=1 >/dev/null
     sysctl -w net.ipv4.conf.all.src_valid_mark=1 >/dev/null
+    # 确保防火墙允许转发 (防止默认 DROP)
+    iptables -P FORWARD ACCEPT
 
+    # 2. 开启 NAT 伪装
     if [ -n "$IFACE" ]; then
         if ! iptables -t nat -C POSTROUTING -o "$IFACE" -j MASQUERADE 2>/dev/null; then
             iptables -t nat -A POSTROUTING -o "$IFACE" -j MASQUERADE
-            echo "    [NAT] 已开启 ($IFACE) - 允许局域网共享上网"
+            echo "    [NAT] 出口伪装已开启: $IFACE"
         else
-            echo "    [NAT] 规则已存在，跳过"
+            echo "    [NAT] 伪装规则已存在"
         fi
-    else
-        echo "    [警告] 未检测到默认网卡，跳过 NAT 设置"
     fi
+
+    # 3. 开启 DNS 劫持 (关键修复)
+    # 将局域网发往网关 53 端口的 UDP/TCP 请求，重定向到 1053
+    # 先清理可能存在的旧规则，避免重复
+    iptables -t nat -D PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 1053 2>/dev/null
+    iptables -t nat -D PREROUTING -p tcp --dport 53 -j REDIRECT --to-ports 1053 2>/dev/null
+    
+    # 添加新规则
+    iptables -t nat -A PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 1053
+    iptables -t nat -A PREROUTING -p tcp --dport 53 -j REDIRECT --to-ports 1053
+    echo "    [DNS] 强制劫持已开启: UDP/TCP 53 -> 1053"
 }
 
 disable_nat() {
-    echo "  - [Network] 服务停止 (NAT 规则保持不变以维持连通性)"
+    echo "  - [Network] 清理网络规则..."
+    # 停止时清理 DNS 劫持规则，恢复系统原状
+    iptables -t nat -D PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 1053 2>/dev/null
+    iptables -t nat -D PREROUTING -p tcp --dport 53 -j REDIRECT --to-ports 1053 2>/dev/null
+    echo "    [DNS] 劫持规则已移除"
+    # NAT 规则通常保留，避免瞬间断网
 }
 
 case "$1" in
@@ -91,7 +116,7 @@ case "$1" in
 esac
 EOF
         chmod +x "$RULE_SCRIPT"
-        echo -e "${GREEN}✅ 网络辅助脚本生成完毕${NC}"
+        echo -e "${GREEN}✅ 网络辅助脚本生成完毕 (含 DNS 修复)${NC}"
     }
 
     # ==================== 1. 服务配置函数 (深度融合) ====================
@@ -101,28 +126,20 @@ EOF
         
         generate_network_script
 
-        # --- 配置文件处理 (修改重点) ---
-        # 如果目标目录(/etc/mihomo)里还没有配置文件
+        # --- 配置文件处理 ---
         if [ ! -f "$CONF_DIR/config.yaml" ]; then
-             
-             # 【优先策略】 1. 先找仓库下载的 config_tun.yaml
              if [ -f "$AUTO_DIR/config_tun.yaml" ]; then
                  cp "$AUTO_DIR/config_tun.yaml" "$CONF_DIR/config.yaml"
-                 echo -e "${GREEN}✅ 已应用仓库文件: config_tun.yaml -> 重命名为 config.yaml${NC}"
-             
-             # 【优先策略】 2. 再找本地上传的 config_tun.yaml
+                 echo -e "${GREEN}✅ 已应用仓库文件: config_tun.yaml${NC}"
              elif [ -f "$MANUAL_DIR/config_tun.yaml" ]; then
                  cp "$MANUAL_DIR/config_tun.yaml" "$CONF_DIR/config.yaml"
-                 echo -e "${GREEN}✅ 已应用本地文件: config_tun.yaml -> 重命名为 config.yaml${NC}"
-             
-             # 【保底策略】 3. 如果没有 tun 版，再找有没有普通的 config.yaml (兼容旧习惯)
+                 echo -e "${GREEN}✅ 已应用本地文件: config_tun.yaml${NC}"
              elif [ -f "$AUTO_DIR/config.yaml" ]; then
                  cp "$AUTO_DIR/config.yaml" "$CONF_DIR/config.yaml"
                  echo -e "${GREEN}✅ 已应用仓库中的 config.yaml${NC}"
              elif [ -f "$MANUAL_DIR/config.yaml" ]; then
                  cp "$MANUAL_DIR/config.yaml" "$CONF_DIR/config.yaml"
                  echo -e "${GREEN}✅ 已应用本地 config.yaml${NC}"
-             
              else
                  echo -e "${YELLOW}⚠️ 未检测到任何配置文件，生成空配置...${NC}"
                  touch "$CONF_DIR/config.yaml"
@@ -130,44 +147,34 @@ EOF
              fi
         fi
 
-        # --- Service 文件生成 (融合 M1 的等待逻辑 + M2 的规则逻辑) ---
+        # --- Service 文件生成 ---
         cat > /etc/systemd/system/mihomo.service <<EOF
 [Unit]
 Description=mihomo Daemon (TUN Mode & Optimized)
-# 【M1 优势】等待时间同步，防止 N1/R5C 断电重启后时间错误导致 SSL 握手失败
 After=network-online.target time-sync.target
 Wants=network-online.target time-sync.target
 
 [Service]
 Type=simple
-# 资源限制
 LimitNPROC=500
 LimitNOFILE=1000000
-
-# 【关键】内存优化：限制 Go 垃圾回收频率
 Environment="GOGC=20"
-
-# TUN 模式需要完整的网络权限
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
-
-# 崩溃自动重启
 Restart=always
 RestartSec=5
 
-# 【M1 优势】网络检测：启动前循环等待默认路由就绪 (防止拨号慢导致启动失败)
+# 启动前检测网络
 ExecStartPre=/bin/bash -c 'for i in {1..20}; do if ip route show default | grep -q "default"; then echo "Network ready"; exit 0; fi; sleep 1; done; echo "Network not ready"; exit 1'
 
-# 【M2 优势】启动前调用辅助脚本开启 NAT
+# 启动前加载网络规则 (NAT + DNS劫持)
 ExecStartPre=$RULE_SCRIPT start
 
-# 启动命令
 ExecStart=$BIN_PATH -d $CONF_DIR
 
-# 【M2 优势】停止后调用辅助脚本
+# 停止后清理规则
 ExecStopPost=$RULE_SCRIPT stop
 
-# 重载与日志
 ExecReload=/bin/kill -HUP \$MAINPID
 StandardOutput=journal
 StandardError=journal
@@ -182,7 +189,7 @@ EOF
         echo -e "${GREEN}✅ 服务已配置并设置为开机自启${NC}"
     }
 
-    # ==================== 2. 在线下载安装 (带 M1 修复) ====================
+    # ==================== 2. 在线下载安装 ====================
     install_online() {
         echo -e "${BLUE}>>> 正在检测系统架构...${NC}"
         local ARCH=$(uname -m)
@@ -198,7 +205,6 @@ EOF
         LATEST_VER=$(curl -s -m 5 https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         
         if [ -z "$LATEST_VER" ]; then
-            # 【M1 修复】增加 < /dev/tty
             read -p "获取失败，请输入欲安装的版本号 (例如 v1.18.5): " LATEST_VER < /dev/tty
             if [ -z "$LATEST_VER" ]; then echo "❌ 未输入版本号"; return 1; fi
         fi
@@ -225,7 +231,7 @@ EOF
         setup_service
     }
 
-    # ==================== 3. 仓库/本地安装 (带 M1 修复) ====================
+    # ==================== 3. 仓库/本地安装 ====================
     install_local() {
         echo -e "${GREEN}=== 仓库/本地 部署模式 ===${NC}"
         local SOURCE_FILE=""
@@ -241,7 +247,6 @@ EOF
             echo "请选择："
             echo "1. 我现在去上传到 $MANUAL_DIR，然后按回车"
             echo "2. 放弃"
-            # 【M1 修复】增加 < /dev/tty
             read -p "选择: " choice < /dev/tty
             if [ "$choice" == "1" ]; then
                 mkdir -p "$MANUAL_DIR"
@@ -281,14 +286,12 @@ EOF
         systemctl stop mihomo 2>/dev/null
         systemctl disable mihomo 2>/dev/null
         
-        # 尝试清理 NAT 脚本 (可选)
         if [ -f "$RULE_SCRIPT" ]; then
             rm -f "$RULE_SCRIPT"
         fi
 
         rm -f "$BIN_PATH"
         rm -f /etc/systemd/system/mihomo.service
-        # rm -f /etc/sysctl.d/99-mihomo-fusion.conf # 建议保留内核优化
         systemctl daemon-reload
 
         if [ -d "$CONF_DIR" ]; then
@@ -301,15 +304,14 @@ EOF
     }
 
     # ==================== 菜单逻辑 ====================
-    echo -e "${GREEN}=== Mihomo 安装向导 (TUN 融合版) ===${NC}"
-    echo "1. 手动应用内核优化 (TUN + BBR)"
+    echo -e "${GREEN}=== Mihomo 安装向导 (TUN 融合版 + DNS修复) ===${NC}"
+    echo "1. 手动应用内核优化 (刷新网络规则)"
     echo "2. 在线安装 (下载官方最新版)"
     echo "3. 部署仓库版本 (推荐！使用本地/仓库文件)"
     echo "4. 服务管理 (启动/停止/日志)"
     echo -e "${RED}5. 卸载 Mihomo${NC}"
     echo "0. 返回主菜单"
     
-    # 【M1 修复】增加 < /dev/tty
     read -p "请选择: " OPT < /dev/tty
 
     case "$OPT" in
