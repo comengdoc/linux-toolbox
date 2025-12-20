@@ -74,7 +74,7 @@ tun:
   #使用仅内核自行修改下面三项为true
   #device: nikki
   auto-route: true
-  auto-redirect: true
+  auto-redirect: false
   auto-detect-interface: true
 
 # DNS模块
