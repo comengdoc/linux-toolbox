@@ -1,7 +1,6 @@
 # DNS防泄露版本
-# TProxy 模式修改版
-# 注意：此模式下 Mihomo 不会自动配置路由，需要配合外部脚本(iptables/nftables)将流量重定向到 7894 端口
-# 跑裸核用户请自行去掉下方控制面板模块的注释。
+# TProxy 模式 (局域网透明代理专用)
+
 # 机场订阅
 proxy-providers:
   3in1:
@@ -23,13 +22,12 @@ port: 7890
 socks-port: 7891
 redir-port: 7892
 mixed-port: 7893
-tproxy-port: 7894  # TProxy 监听端口，外部规则需转发流量至此
+tproxy-port: 7894  # 关键：与 iptables 规则对应
 allow-lan: true
 bind-address: "*"
 ipv6: false
 unified-delay: true
 tcp-concurrent: true
-# interface-name: enp6s18
 log-level: warning
 find-process-mode: 'off'
 global-client-fingerprint: chrome
@@ -39,8 +37,7 @@ profile:
   store-selected: true
   store-fake-ip: true
 
-# 为防止使用插件朋友遇到面板问题，我注释掉了此模块。
-# 跑裸核朋友自行删除注释即可，使用nikki仅内核的ui路径改为/etc/nikki/run/ui
+# 控制面板 (已开启，方便你管理)
 external-controller: 0.0.0.0:9090
 secret: "693132"
 external-ui: "/etc/mihomo/ui"
@@ -63,21 +60,14 @@ sniffer:
   skip-domain:
     - "+.baidu.com"
 
-# 入站 (Tun配置已禁用，转为 TProxy 支持)
+# 入站 (Tun 已禁用，专心做 TProxy)
 tun:
-  enable: false  # 【已修改】关闭 Tun 模式，避免自动创建虚拟网卡
-  # system/gvisor/mixed
-  #stack: mixed
-  #dns-hijack: ["any:53", "tcp://any:53"]
-  # device: nikki
-  #auto-route: true
-  #auto-redirect: true
-  #auto-detect-interface: true
+  enable: false 
 
 # DNS模块
 dns:
   enable: true
-  listen: 0.0.0.0:1053 # DNS 监听端口，外部规则需转发 DNS 查询至此
+  listen: 0.0.0.0:1053 # 关键：与 iptables 53劫持对应
   ipv6: false
   respect-rules: true
   enhanced-mode: fake-ip
@@ -98,7 +88,6 @@ dns:
     - "rule-set:private_domain,cn_domain,apple_domain"
  
 # 出站策略
-# 已修改：仅保留日本、美国和直连
 proxy-groups:
   - {name: 🚀 默认代理, type: select, proxies: [🔯 日本故转, 🔯 美国故转, ♻️ 日本自动, ♻️ 美国自动, 直连]}
   - {name: 📹 YouTube, type: select, proxies: [🔯 美国故转, 🔯 日本故转, ♻️ 美国自动, ♻️ 日本自动, 直连]}
@@ -110,14 +99,13 @@ proxy-groups:
   - {name: 📲 Telegram, type: select, proxies: [🔯 日本故转, 🔯 美国故转, ♻️ 日本自动, ♻️ 美国自动, 直连]}
   - {name: 🐟 漏网之鱼, type: select, proxies: [🚀 默认代理, 🔯 日本故转, 🔯 美国故转, ♻️ 日本自动, ♻️ 美国自动, 直连]}
   
-  # 地区分组 - 仅保留日本和美国
+  # 地区分组
   - {name: 🔯 日本故转, type: fallback, include-all: true, tolerance: 20, interval: 300, filter: "(?=.*(日|JP|(?i)Japan))^((?!(港|台|韩|新|美)).)*$" }
   - {name: ♻️ 日本自动, type: url-test, include-all: true, tolerance: 20, interval: 300, filter: "(?=.*(日|JP|(?i)Japan))^((?!(港|台|韩|新|美)).)*$" }
   - {name: 🔯 美国故转, type: fallback, include-all: true, tolerance: 20, interval: 300, filter: "(?=.*(美|US|(?i)States|America))^((?!(港|台|韩|新|日)).)*$" }
   - {name: ♻️ 美国自动, type: url-test, include-all: true, tolerance: 20, interval: 300, filter: "(?=.*(美|US|(?i)States|America))^((?!(港|台|日|韩|新)).)*$"}
 
 # 规则匹配
-# 此规则部分没有做防泄露处理，因为弊严重大于利！
 rules:
   - RULE-SET,private_ip,直连,no-resolve
   - RULE-SET,private_domain,直连
@@ -140,7 +128,6 @@ rules:
   - MATCH,🐟 漏网之鱼
 
 # 规则集
-## type：可选http/file/inline  behavior：可选domain/ipcidr/classical format：可选yaml/text/mrs
 rule-anchor:
   ip: &ip {type: http, interval: 86400, behavior: ipcidr, format: mrs}
   domain: &domain {type: http, interval: 86400, behavior: domain, format: mrs}
