@@ -14,7 +14,7 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-function module_mihomo() {
+function module_mihomo_tun() {
     # 定义路径
     AUTO_DIR="/tmp/mihomo"          # 自动下载缓存路径
     MANUAL_DIR="/root/mihomo"       # 手动上传路径
@@ -274,7 +274,7 @@ EOF
 
     # ==================== 4. 卸载函数 ====================
     uninstall_mihomo() {
-        echo -e "${RED}⚠️  警告：准备卸载 Mihomo${NC}"
+        echo -e "${RED}⚠️  警告：准备卸载 Mihomo (TUN)${NC}"
         read -p "确认要卸载吗？(y/N): " confirm < /dev/tty
         if [[ ! "$confirm" =~ ^[Yy]$ ]]; then echo "已取消"; return; fi
 
@@ -301,7 +301,7 @@ EOF
     }
 
     # ==================== 菜单逻辑 ====================
-    echo -e "${GREEN}=== Mihomo 安装向导 (终极融合版) ===${NC}"
+    echo -e "${GREEN}=== Mihomo 安装向导 (TUN 融合版) ===${NC}"
     echo "1. 手动应用内核优化 (TUN + BBR)"
     echo "2. 在线安装 (下载官方最新版)"
     echo "3. 部署仓库版本 (推荐！使用本地/仓库文件)"
