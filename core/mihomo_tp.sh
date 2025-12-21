@@ -42,7 +42,7 @@ net.ipv4.conf.lo.rp_filter=0
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 fs.inotify.max_user_watches=524288
-net.netfilter.nf_conntrack_max=65535
+net.netfilter.nf_conntrack_max=262144
 EOF
         sysctl --system >/dev/null 2>&1
         echo -e "${GREEN}✅ 内核优化完成${NC}"
