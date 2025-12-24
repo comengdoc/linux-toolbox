@@ -1,10 +1,11 @@
 #!/bin/bash
 
 # =========================================================
-# Mihomo 纯享版 (纯 TProxy 模式 - 专注局域网代理)
+# Mihomo 纯享版 (TProxy模式 + N1/R5C 极致性能优化 Pro)
 # 适配配置: config_tp.yaml (Port: 7894, DNS: 1053)
 # 功能: 仅接管局域网流量 (PREROUTING)，放弃本机流量接管以确保极致稳定
 # 新增: 网卡绑定选择 (防止 Docker/虚拟网卡 导致 NAT 失败)
+# 新增: Pro级优化 (RPS均衡 + UDP大缓存 + 硬件卸载优化)
 # =========================================================
 
 # 定义颜色
@@ -23,9 +24,9 @@ function module_mihomo_tp() {
     RULE_SCRIPT="/usr/local/bin/mihomo-rules.sh" # 网络规则脚本路径
     IFACE_FILE="$CONF_DIR/interface_name" # 网卡配置文件
 
-    # ==================== 0. 内核优化 ====================
+    # ==================== 0. 内核优化 (Pro 增强版) ====================
     optimize_sysctl() {
-        echo -e "${BLUE}>>> 正在应用系统内核优化 (TProxy 网关专用)...${NC}"
+        echo -e "${BLUE}>>> 正在应用系统内核优化 (Pro版: TProxy专用 + RPS + UDP优化)...${NC}"
         cat > /etc/sysctl.d/99-mihomo-fusion.conf <<EOF
 # --- 基础转发 ---
 net.ipv4.ip_forward=1
@@ -40,14 +41,43 @@ net.ipv4.conf.default.rp_filter=0
 net.ipv4.conf.eth0.rp_filter=0
 net.ipv4.conf.lo.rp_filter=0
 
-# --- 性能优化 ---
+# --- 性能优化: TCP BBR ---
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
+
+# --- 性能优化: 连接数保障 ---
 fs.inotify.max_user_watches=524288
 net.netfilter.nf_conntrack_max=262144
+
+# --- 【新增】UDP 缓冲区优化 (针对 Hysteria2/QUIC) ---
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.core.rmem_default=262144
+net.core.wmem_default=262144
 EOF
         sysctl --system >/dev/null 2>&1
-        echo -e "${GREEN}✅ 内核优化完成${NC}"
+
+        # 2. 【新增】开启 RPS (CPU 软中断均衡) & 关闭 Offloading
+        # 针对 4 核 CPU (N1/R5C) 的优化，掩码 f (二进制 1111) 代表所有 4 个核都参与处理
+        echo -e "    正在配置网卡硬件参数 (RPS/Offloading)..."
+        
+        # 遍历所有物理网卡 (排除 lo/tun/docker/veth 等)
+        for iface in $(ls /sys/class/net | grep -vE "^(lo|tun|docker|veth|cali|flannel|cni|dummy|kube)"); do
+            # 开启 RPS (多核分流)
+            if [ -f "/sys/class/net/$iface/queues/rx-0/rps_cpus" ]; then
+                echo "f" > "/sys/class/net/$iface/queues/rx-0/rps_cpus" 2>/dev/null
+                echo "      - $iface: RPS 已启用 (4核负载均衡)"
+            fi
+            
+            # 关闭可能导致问题的 Offloading (解决断流/兼容性)
+            # TProxy 模式下，GRO/LRO 经常导致校验和错误，关闭它非常重要
+            if command -v ethtool >/dev/null 2>&1; then
+                 ethtool -K "$iface" gro off lro off >/dev/null 2>&1
+                 echo "      - $iface: GRO/LRO 硬件卸载已关闭 (提升TProxy稳定性)"
+            fi
+        done
+
+        echo -e "${GREEN}✅ 内核优化(Pro)完成${NC}"
     }
 
     # ==================== 辅助：网络保障脚本 (纯净版) ====================
@@ -308,7 +338,7 @@ EOF
         echo -e "${GREEN}✅ 卸载完成${NC}"
     }
 
-    echo -e "${GREEN}=== Mihomo TProxy (纯局域网版) ===${NC}"
+    echo -e "${GREEN}=== Mihomo TProxy (纯局域网 Pro版) ===${NC}"
     echo "1. 刷新内核与网络规则 (含网卡设置)"
     echo "2. 在线安装"
     echo "3. 本地/仓库安装"

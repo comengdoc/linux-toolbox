@@ -1,12 +1,13 @@
 #!/bin/bash
 
 # =========================================================
-# Mihomo 终极融合版 (TUN模式 + N1/R5C稳定性优化)
+# Mihomo 终极融合版 (TUN模式 + N1/R5C 极致性能优化 Pro)
 # 融合说明:
 # 1. 基础架构基于 M2 (确保 TUN 模式不环路，自动管理 NAT)
 # 2. 稳定性代码来自 M1 (时间同步保护、BBR、启动路由检测、菜单修复)
 # 3. 修复局域网 DNS 问题 (手动劫持 53 -> 1053)
 # 4. 新增网卡绑定选择 (防止 Docker/虚拟网卡 干扰)
+# 5. 【新增】Pro级优化: RPS多核均衡 + UDP大缓存 + 硬件卸载优化
 # =========================================================
 
 # 定义颜色
@@ -24,25 +25,54 @@ function module_mihomo_tun() {
     BIN_PATH="/usr/local/bin/mihomo" # 二进制文件路径
     RULE_SCRIPT="/usr/local/bin/mihomo-rules.sh" # 网络规则脚本路径
 
-    # ==================== 0. 内核优化 (融合 M1+M2) ====================
+    # ==================== 0. 内核优化 (Pro 增强版) ====================
     optimize_sysctl() {
-        echo -e "${BLUE}>>> 正在应用系统内核优化 (TUN防环路 + BBR + 转发)...${NC}"
+        echo -e "${BLUE}>>> 正在应用系统内核优化 (Pro版: RPS均衡 + UDP大缓存 + TUN防环路)...${NC}"
+        
+        # 1. 写入 sysctl 配置文件
         cat > /etc/sysctl.d/99-mihomo-fusion.conf <<EOF
-# --- M2: TUN 模式核心参数 ---
-# 开启 IPv4/IPv6 转发
+# --- 基础转发 ---
 net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1
-# 开启 Source Valid Mark (防止 TUN 模式流量环路)
+
+# --- TUN 模式核心防环路 ---
 net.ipv4.conf.all.src_valid_mark=1
 
-# --- M1: 性能与稳定性参数 ---
-# 开启 BBR 拥塞控制 (提升节点速度)
+# --- 性能优化: TCP BBR ---
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
-# 增大文件监听数 (防止日志报错 Too many open files)
+
+# --- 性能优化: 连接数保障 ---
 fs.inotify.max_user_watches=524288
+net.netfilter.nf_conntrack_max=262144
+
+# --- 【新增】UDP 缓冲区优化 (针对 Hysteria2/QUIC) ---
+# 提升到 16MB 以应对高吞吐 UDP，解决游戏/QUIC 丢包
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.core.rmem_default=262144
+net.core.wmem_default=262144
 EOF
         sysctl --system >/dev/null 2>&1
+
+        # 2. 【新增】开启 RPS (CPU 软中断均衡) & 关闭 Offloading
+        # 针对 4 核 CPU (N1/R5C) 的优化，掩码 f (二进制 1111) 代表所有 4 个核都参与处理
+        echo -e "    正在配置网卡硬件参数 (RPS/Offloading)..."
+        
+        # 遍历所有物理网卡 (排除 lo/tun/docker/veth 等)
+        for iface in $(ls /sys/class/net | grep -vE "^(lo|tun|docker|veth|cali|flannel|cni|dummy|kube)"); do
+            # 开启 RPS (多核分流)
+            if [ -f "/sys/class/net/$iface/queues/rx-0/rps_cpus" ]; then
+                echo "f" > "/sys/class/net/$iface/queues/rx-0/rps_cpus" 2>/dev/null
+                echo "      - $iface: RPS 已启用 (4核负载均衡)"
+            fi
+            
+            # 关闭可能导致问题的 Offloading (解决断流/兼容性)
+            if command -v ethtool >/dev/null 2>&1; then
+                 ethtool -K "$iface" gro off lro off >/dev/null 2>&1
+                 echo "      - $iface: GRO/LRO 硬件卸载已关闭 (提升稳定性)"
+            fi
+        done
         
         # 这里同时也调用一次生成网络脚本，确保更新规则
         generate_network_script
@@ -130,7 +160,7 @@ EOF
         
         # 如果有 br-lan (OpenWrt/旁路由常见)，把它加到列表最前面
         if [ -d "/sys/class/net/br-lan" ]; then
-            # 简单去重逻辑：如果 INTERFACES 里已经有 br-lan，先去掉它，再加到开头
+            # 简单去重逻辑
             INTERFACES=$(echo "$INTERFACES" | sed 's/br-lan//g')
             INTERFACES="br-lan $INTERFACES"
         fi
@@ -360,8 +390,8 @@ EOF
     }
 
     # ==================== 菜单逻辑 ====================
-    echo -e "${GREEN}=== Mihomo 安装向导 (TUN 融合版 + DNS修复) ===${NC}"
-    echo "1. 手动应用内核优化 (刷新网络规则)"
+    echo -e "${GREEN}=== Mihomo 安装向导 (TUN 融合Pro版) ===${NC}"
+    echo "1. 手动应用内核优化 (刷新网络规则+RPS)"
     echo "2. 在线安装 (下载官方最新版)"
     echo "3. 部署仓库版本 (推荐！使用本地/仓库文件)"
     echo "4. 服务管理 (启动/停止/日志)"
