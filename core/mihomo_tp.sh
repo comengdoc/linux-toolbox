@@ -4,6 +4,7 @@
 # Mihomo 纯享版 (纯 TProxy 模式 - 专注局域网代理)
 # 适配配置: config_tp.yaml (Port: 7894, DNS: 1053)
 # 功能: 仅接管局域网流量 (PREROUTING)，放弃本机流量接管以确保极致稳定
+# 新增: 网卡绑定选择 (防止 Docker/虚拟网卡 导致 NAT 失败)
 # =========================================================
 
 # 定义颜色
@@ -20,6 +21,7 @@ function module_mihomo_tp() {
     CONF_DIR="/etc/mihomo"          # 配置文件路径
     BIN_PATH="/usr/local/bin/mihomo" # 二进制文件路径
     RULE_SCRIPT="/usr/local/bin/mihomo-rules.sh" # 网络规则脚本路径
+    IFACE_FILE="$CONF_DIR/interface_name" # 网卡配置文件
 
     # ==================== 0. 内核优化 ====================
     optimize_sysctl() {
@@ -52,7 +54,9 @@ EOF
     generate_network_script() {
         echo -e "${BLUE}>>> 生成 TProxy 网络接管脚本 (仅局域网)...${NC}"
         
-        cat > "$RULE_SCRIPT" <<'EOF'
+        # 注意：这里我们让生成的脚本去读取 $IFACE_FILE，而不是在生成时写死
+        # 这样用户如果换网口，只需改文件不需要重新生成脚本
+        cat > "$RULE_SCRIPT" <<EOF
 #!/bin/bash
 # Mihomo TProxy 网络管理器 (局域网专用版)
 
@@ -61,15 +65,23 @@ TPROXY_PORT=7894
 DNS_PORT=1053
 FWMARK=1
 TABLE=100
+CONF_IFACE="$IFACE_FILE"
 
-IFACE=$(ip route show default | awk '/default/ {print $5}' | head -n1)
+# 获取出口网卡逻辑
+if [ -f "\$CONF_IFACE" ]; then
+    IFACE=\$(cat "\$CONF_IFACE")
+    echo "  - [Network] 使用锁定网卡: \$IFACE"
+else
+    IFACE=\$(ip route show default | awk '/default/ {print \$5}' | head -n1)
+    echo "  - [Network] 自动检测网卡: \$IFACE"
+fi
 
 enable_rules() {
     echo "  - [Network] 正在初始化 TProxy 规则..."
     
     # 1. 基础设置与策略路由
-    ip rule add fwmark $FWMARK lookup $TABLE 2>/dev/null
-    ip route add local 0.0.0.0/0 dev lo table $TABLE 2>/dev/null
+    ip rule add fwmark \$FWMARK lookup \$TABLE 2>/dev/null
+    ip route add local 0.0.0.0/0 dev lo table \$TABLE 2>/dev/null
 
     # 2. 新建自定义链 MIHOMO (Mangle表)
     iptables -t mangle -N MIHOMO 2>/dev/null
@@ -88,8 +100,8 @@ enable_rules() {
     
     # --- 流量打标 ---
     # 只有 TCP/UDP 流量才进 TProxy
-    iptables -t mangle -A MIHOMO -p tcp -j TPROXY --on-port $TPROXY_PORT --tproxy-mark $FWMARK
-    iptables -t mangle -A MIHOMO -p udp -j TPROXY --on-port $TPROXY_PORT --tproxy-mark $FWMARK
+    iptables -t mangle -A MIHOMO -p tcp -j TPROXY --on-port \$TPROXY_PORT --tproxy-mark \$FWMARK
+    iptables -t mangle -A MIHOMO -p udp -j TPROXY --on-port \$TPROXY_PORT --tproxy-mark \$FWMARK
 
     # 3. 应用规则到 PREROUTING (局域网流量入口)
     # 这条规则意味着：所有进入本机的流量，都去走一遍 MIHOMO 链
@@ -100,8 +112,8 @@ enable_rules() {
     # 强制局域网设备的 DNS 请求走 Mihomo 的 DNS
     iptables -t nat -N MIHOMO_DNS 2>/dev/null
     iptables -t nat -F MIHOMO_DNS
-    iptables -t nat -A MIHOMO_DNS -p udp --dport 53 -j REDIRECT --to-ports $DNS_PORT
-    iptables -t nat -A MIHOMO_DNS -p tcp --dport 53 -j REDIRECT --to-ports $DNS_PORT
+    iptables -t nat -A MIHOMO_DNS -p udp --dport 53 -j REDIRECT --to-ports \$DNS_PORT
+    iptables -t nat -A MIHOMO_DNS -p tcp --dport 53 -j REDIRECT --to-ports \$DNS_PORT
     
     # 应用到 PREROUTING
     iptables -t nat -C PREROUTING -j MIHOMO_DNS 2>/dev/null || \
@@ -109,9 +121,9 @@ enable_rules() {
 
     # 5. 开启 NAT (保证回程)
     # 如果不做 SNAT/Masquerade，回包可能会找不到路
-    if [ -n "$IFACE" ]; then
-        iptables -t nat -C POSTROUTING -o "$IFACE" -j MASQUERADE 2>/dev/null || \
-        iptables -t nat -A POSTROUTING -o "$IFACE" -j MASQUERADE
+    if [ -n "\$IFACE" ]; then
+        iptables -t nat -C POSTROUTING -o "\$IFACE" -j MASQUERADE 2>/dev/null || \
+        iptables -t nat -A POSTROUTING -o "\$IFACE" -j MASQUERADE
     fi
 
     echo "    [TProxy] 局域网透明代理已生效 (本机直连)"
@@ -131,28 +143,60 @@ disable_rules() {
     iptables -t nat -X MIHOMO_DNS 2>/dev/null
 
     # 清理策略路由
-    ip rule del fwmark $FWMARK lookup $TABLE 2>/dev/null
-    ip route del local 0.0.0.0/0 dev lo table $TABLE 2>/dev/null
+    ip rule del fwmark \$FWMARK lookup \$TABLE 2>/dev/null
+    ip route del local 0.0.0.0/0 dev lo table \$TABLE 2>/dev/null
 }
 
-case "$1" in
+case "\$1" in
     start) enable_rules ;;
     stop) disable_rules ;;
     restart) disable_rules; sleep 1; enable_rules ;;
     uninstall) disable_rules ;;
-    *) echo "Usage: $0 {start|stop|restart|uninstall}"; exit 1 ;;
+    *) echo "Usage: \$0 {start|stop|restart|uninstall}"; exit 1 ;;
 esac
 EOF
         chmod +x "$RULE_SCRIPT"
         echo -e "${GREEN}✅ TProxy 网络脚本生成完毕${NC}"
     }
 
+    # ==================== 新增：网卡选择交互函数 ====================
+    configure_interface() {
+        echo -e "${BLUE}>>> 正在配置出口网卡 (用于 NAT Masquerade)...${NC}"
+        
+        # 1. 获取物理网卡列表
+        INTERFACES=$(ls /sys/class/net | grep -vE "^(lo|tun|docker|veth|cali|flannel|cni|dummy)")
+        
+        # 优先处理 br-lan
+        if [ -d "/sys/class/net/br-lan" ]; then
+            INTERFACES=$(echo "$INTERFACES" | sed 's/br-lan//g')
+            INTERFACES="br-lan $INTERFACES"
+        fi
+
+        IFACE_LIST=($INTERFACES "自动检测(Auto)")
+
+        echo -e "${YELLOW}检测到以下网卡，请选择主要流量出口 (通常是 eth0 或 br-lan):${NC}"
+        
+        select iface in "${IFACE_LIST[@]}"; do
+            if [ "$iface" == "自动检测(Auto)" ]; then
+                echo -e "已选择: ${GREEN}自动检测${NC}"
+                rm -f "$IFACE_FILE"
+                break
+            elif [ -n "$iface" ]; then
+                echo -e "已锁定网卡: ${GREEN}$iface${NC}"
+                echo "$iface" > "$IFACE_FILE"
+                break
+            else
+                echo "输入错误，请重新选择数字。"
+            fi
+        done
+    }
+
     # ==================== 1. 服务配置函数 ====================
     setup_service() {
         echo -e "${BLUE}>>> 配置 Systemd 服务...${NC}"
         mkdir -p "$CONF_DIR"
-        generate_network_script
-
+        
+        # 先复制配置，确保目录存在
         if [ ! -f "$CONF_DIR/config.yaml" ]; then
              if [ -f "$AUTO_DIR/config_tp.yaml" ]; then
                  cp "$AUTO_DIR/config_tp.yaml" "$CONF_DIR/config.yaml"
@@ -163,6 +207,12 @@ EOF
                  echo -e "${RED}⚠️ 请注意：请确保 config.yaml 已就位${NC}"
              fi
         fi
+
+        # =========== 【插入点】 ===========
+        # 询问网卡并生成网络脚本
+        configure_interface
+        generate_network_script
+        # ================================
 
         cat > /etc/systemd/system/mihomo.service <<EOF
 [Unit]
@@ -204,7 +254,6 @@ EOF
     }
 
     # ==================== 安装与菜单 (保持不变) ====================
-    # (此处省略安装下载部分代码，复用你原有的即可，无需改动)
     install_online() {
         echo -e "${BLUE}>>> 正在获取 Mihomo 版本...${NC}"
         local ARCH=$(uname -m)
@@ -260,7 +309,7 @@ EOF
     }
 
     echo -e "${GREEN}=== Mihomo TProxy (纯局域网版) ===${NC}"
-    echo "1. 刷新内核与网络规则"
+    echo "1. 刷新内核与网络规则 (含网卡设置)"
     echo "2. 在线安装"
     echo "3. 本地/仓库安装"
     echo "4. 服务管理"
@@ -269,7 +318,7 @@ EOF
     read -p "选择: " OPT < /dev/tty
 
     case "$OPT" in
-        1) optimize_sysctl; setup_service ;;
+        1) configure_interface; optimize_sysctl; generate_network_script ;;
         2) install_online ;;
         3) install_local ;;
         4) systemctl restart mihomo; echo "已重启" ;;

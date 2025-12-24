@@ -6,6 +6,7 @@
 # 1. 基础架构基于 M2 (确保 TUN 模式不环路，自动管理 NAT)
 # 2. 稳定性代码来自 M1 (时间同步保护、BBR、启动路由检测、菜单修复)
 # 3. 修复局域网 DNS 问题 (手动劫持 53 -> 1053)
+# 4. 新增网卡绑定选择 (防止 Docker/虚拟网卡 干扰)
 # =========================================================
 
 # 定义颜色
@@ -64,7 +65,7 @@ EOF
 # 1. 开启 NAT (Masquerade)，确保作为网关时下游设备有网
 # 2. 开启 DNS 劫持 (53->1053)，解决 auto-redirect: false 时局域网设备无法解析的问题
 
-# 获取出口网卡
+# 获取出口网卡 (用于 NAT)
 IFACE=$(ip route show default | awk '/default/ {print $5}' | head -n1)
 
 enable_nat() {
@@ -119,6 +120,56 @@ EOF
         echo -e "${GREEN}✅ 网络辅助脚本生成完毕 (含 DNS 修复)${NC}"
     }
 
+    # ==================== 新增：网卡选择交互函数 ====================
+    configure_interface() {
+        echo -e "${BLUE}>>> 正在配置出口网卡 (绑定物理接口)...${NC}"
+        
+        # 1. 获取物理网卡列表 (排除 lo, tun, docker, veth, cali 等虚拟网卡)
+        # 这里的逻辑是获取 /sys/class/net 下的目录
+        INTERFACES=$(ls /sys/class/net | grep -vE "^(lo|tun|docker|veth|cali|flannel|cni|dummy)")
+        
+        # 如果有 br-lan (OpenWrt/旁路由常见)，把它加到列表最前面
+        if [ -d "/sys/class/net/br-lan" ]; then
+            # 简单去重逻辑：如果 INTERFACES 里已经有 br-lan，先去掉它，再加到开头
+            INTERFACES=$(echo "$INTERFACES" | sed 's/br-lan//g')
+            INTERFACES="br-lan $INTERFACES"
+        fi
+
+        # 转换为数组以便 select 使用
+        IFACE_LIST=($INTERFACES "自动检测(Auto)")
+
+        echo -e "${YELLOW}检测到以下网卡，请选择主要流量出口 (通常是 eth0 或 br-lan):${NC}"
+        
+        select iface in "${IFACE_LIST[@]}"; do
+            if [ "$iface" == "自动检测(Auto)" ]; then
+                echo -e "已选择: ${GREEN}自动检测${NC}"
+                # 恢复 auto-detect 为 true
+                sed -i 's/auto-detect-interface: false/auto-detect-interface: true/' "$CONF_DIR/config.yaml"
+                # 注释掉 interface-name
+                sed -i 's/^interface-name:/# interface-name:/' "$CONF_DIR/config.yaml"
+                break
+            elif [ -n "$iface" ]; then
+                echo -e "已锁定网卡: ${GREEN}$iface${NC}"
+                
+                # 1. 修改 auto-detect-interface 为 false
+                sed -i 's/auto-detect-interface: true/auto-detect-interface: false/' "$CONF_DIR/config.yaml"
+                
+                # 2. 修改 interface-name
+                # 先尝试替换已有的 (去掉注释 #)
+                if grep -q "interface-name:" "$CONF_DIR/config.yaml"; then
+                    # 匹配 # interface-name: xxx 或 interface-name: xxx，替换为 interface-name: $iface
+                    sed -i "s/^#\? *interface-name:.*/interface-name: $iface/" "$CONF_DIR/config.yaml"
+                else
+                    # 如果配置文件里完全没这一行，插在文件头部
+                    sed -i "1i interface-name: $iface" "$CONF_DIR/config.yaml"
+                fi
+                break
+            else
+                echo "输入错误，请重新选择数字。"
+            fi
+        done
+    }
+
     # ==================== 1. 服务配置函数 (深度融合) ====================
     setup_service() {
         echo -e "${BLUE}>>> 配置 Systemd 服务...${NC}"
@@ -146,6 +197,11 @@ EOF
                  echo -e "${RED}⚠️ 请注意：你需要自行编辑 $CONF_DIR/config.yaml 填入订阅信息！${NC}"
              fi
         fi
+
+        # =========== 【插入点】 ===========
+        # 配置文件就位后，立即询问网卡设置
+        configure_interface
+        # ================================
 
         # --- Service 文件生成 ---
         cat > /etc/systemd/system/mihomo.service <<EOF
