@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# 模块化加载器 (Loader) - v3.4 (Mihomo 双模版)
+# 模块化加载器 (Loader) - v3.5 (集成 Git 助手版)
 # ==============================================================================
 
 # [基础配置]
@@ -119,6 +119,7 @@ sync_mihomo_folder() {
 }
 
 # ==================== 2. 核心：模块加载函数 ====================
+# 注意：此函数通过 source 加载，适用于函数库，不适用于含 exit 的独立脚本
 load_module() {
     local module_name="$1"
     local func_check="$2"
@@ -159,7 +160,7 @@ load_module() {
     fi
 }
 
-# 辅助函数：安全运行模块
+# 辅助函数：安全运行模块 (source 模式)
 run_safe() {
     local script="$1"
     local func="$2"
@@ -171,6 +172,31 @@ run_safe() {
         echo -e "${RED}❌ 无法运行功能: $func${NC}"
         echo -e "${YELLOW}可能是网络波动导致模块下载失败。${NC}"
         read -p "按回车键返回..." < /dev/tty
+    fi
+}
+
+# 新增辅助函数：运行独立脚本 (subprocess 模式)
+# 适用于 Smart Git 这类包含 exit 命令的脚本，防止退出主菜单
+run_external_script() {
+    local script_name="$1"
+    local local_file="${CACHE_DIR}/${script_name}"
+    local remote_file="${PROXY_PREFIX}${REPO_URL}/core/${script_name}"
+
+    echo -ne "📥 下载工具: ${script_name} ... "
+    
+    # 强制重新下载或检查缓存（这里简化为若不存在则下载，或者每次覆盖）
+    # 为了保证 Git 工具最新，建议加上 -s 检查或允许覆盖
+    if curl -s -f -o "$local_file" "$remote_file"; then
+         chmod +x "$local_file"
+         echo -e "[\033[0;32mOK\033[0m]"
+         sleep 0.5
+         
+         # 关键点：使用 bash 在子进程运行，隔离 exit 信号
+         bash "$local_file"
+    else
+         echo -e "[\033[0;31m下载失败\033[0m]"
+         echo -e "${YELLOW}请检查网络或仓库 core 目录是否存在该文件。${NC}"
+         read -p "按回车键返回..." < /dev/tty
     fi
 }
 
@@ -254,7 +280,7 @@ manage_shortcut() {
 while true; do
     clear
     echo -e "${BLUE}====================================================${NC}"
-    echo -e "       🛠️  Armbian/Docker 工具箱 (v3.4 双模版)"
+    echo -e "       🛠️  Armbian/Docker 工具箱 (v3.5 +Git版)"
     echo -e "${BLUE}====================================================${NC}"
     echo -e " ${GREEN}1.${NC} 安装/管理 Docker"
     echo -e " ${GREEN}2.${NC} Mihomo (TUN 模式)    ${YELLOW}[常用]${NC}"
@@ -272,12 +298,14 @@ while true; do
     echo -e " ${GREEN}12.${NC} 磁盘/分区管理"
     echo -e " ${GREEN}13.${NC} 网卡流量监控"
     echo -e " ${RED}14.${NC} Docker 挂载清理"
-    echo -e "${BLUE}----------------------------------------------------${NC}"
     echo -e " ${GREEN}15.${NC} 管理快捷键"
+    echo -e "${BLUE}----------------------------------------------------${NC}"
+    echo -e " ${CYAN}16.${NC} Git 智能助手 (Smart Git) ${YELLOW}[新增]${NC}"
+    echo -e "${BLUE}----------------------------------------------------${NC}"
     echo -e " ${GREEN}0.${NC} 退出脚本"
     echo
     
-    read -p "请输入选项 [0-15]: " choice < /dev/tty
+    read -p "请输入选项 [0-16]: " choice < /dev/tty
 
     case "$choice" in
         1) run_safe "docker_install.sh" "module_docker_install" ;;
@@ -307,6 +335,7 @@ while true; do
         13) run_safe "monitor.sh"       "module_nic_monitor" ;;
         14) run_safe "mount_clean.sh"   "module_mount_cleaner" ;;
         15) manage_shortcut ;;
+        16) run_external_script "Smart_Git_V7.sh" ;;
         0) exit 0 ;;
         *) echo "无效选项。" ;;
     esac
