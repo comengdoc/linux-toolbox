@@ -1,11 +1,13 @@
 #!/bin/bash
 
 # =========================================================
-# Mihomo 纯享版 (TProxy模式 + N1/R5C 极致性能优化 Pro)
-# 适配配置: config_tp.yaml (Port: 7894, DNS: 1053)
-# 功能: 仅接管局域网流量 (PREROUTING)，放弃本机流量接管以确保极致稳定
-# 新增: 网卡绑定选择 (防止 Docker/虚拟网卡 导致 NAT 失败)
-# 新增: Pro级优化 (RPS均衡 + UDP大缓存 + 硬件卸载优化)
+# Mihomo TProxy 终极版 (通用架构适配 Pro)
+# 适用设备: R5C / N1 / 树莓派 / x86物理机 / PVE虚拟机
+# 核心功能:
+# 1. 纯 TProxy 模式 (仅接管局域网流量，极度稳定)
+# 2. 智能 RPS: 自动识别 CPU 核数并计算掩码 (2核/4核/8核...)
+# 3. 架构自适应: 支持 ARM64, ARMv7, x86_64 (含 v3 AVX2 高性能版)
+# 4. 网卡绑定: 支持手动锁定物理网卡，防止 NAT 失效
 # =========================================================
 
 # 定义颜色
@@ -24,22 +26,18 @@ function module_mihomo_tp() {
     RULE_SCRIPT="/usr/local/bin/mihomo-rules.sh" # 网络规则脚本路径
     IFACE_FILE="$CONF_DIR/interface_name" # 网卡配置文件
 
-    # ==================== 0. 内核优化 (Pro 增强版) ====================
+    # ==================== 0. 内核优化 (通用动态版) ====================
     optimize_sysctl() {
-        echo -e "${BLUE}>>> 正在应用系统内核优化 (Pro版: TProxy专用 + RPS + UDP优化)...${NC}"
+        echo -e "${BLUE}>>> 正在应用系统内核优化 (动态RPS + TProxy专用 + UDP大缓存)...${NC}"
         cat > /etc/sysctl.d/99-mihomo-fusion.conf <<EOF
 # --- 基础转发 ---
 net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1
 
-# --- TProxy 关键参数 ---
-# 允许非本地绑定 (TProxy必须)
+# --- TProxy 关键参数 (必须) ---
 net.ipv4.ip_nonlocal_bind=1
-# 放宽反向路径过滤 (防止TProxy丢包)
 net.ipv4.conf.all.rp_filter=0
 net.ipv4.conf.default.rp_filter=0
-net.ipv4.conf.eth0.rp_filter=0
-net.ipv4.conf.lo.rp_filter=0
 
 # --- 性能优化: TCP BBR ---
 net.core.default_qdisc=fq
@@ -49,7 +47,7 @@ net.ipv4.tcp_congestion_control=bbr
 fs.inotify.max_user_watches=524288
 net.netfilter.nf_conntrack_max=262144
 
-# --- 【新增】UDP 缓冲区优化 (针对 Hysteria2/QUIC) ---
+# --- UDP 缓冲区优化 (针对 Hysteria2/QUIC) ---
 net.core.rmem_max=16777216
 net.core.wmem_max=16777216
 net.core.rmem_default=262144
@@ -57,24 +55,34 @@ net.core.wmem_default=262144
 EOF
         sysctl --system >/dev/null 2>&1
 
-        # 2. 【新增】开启 RPS (CPU 软中断均衡) & 关闭 Offloading
-        # 针对 4 核 CPU (N1/R5C) 的优化，掩码 f (二进制 1111) 代表所有 4 个核都参与处理
-        echo -e "    正在配置网卡硬件参数 (RPS/Offloading)..."
+        # 2. 【升级】动态计算 RPS 掩码 & 关闭 Offloading
+        echo -e "    正在配置网卡硬件参数 (动态RPS/Offloading)..."
         
-        # 遍历所有物理网卡 (排除 lo/tun/docker/veth 等)
+        # 自动获取 CPU 核心数
+        local CPU_COUNT=$(nproc)
+        # 计算掩码: (1 << 核心数) - 1
+        local RPS_MASK=$(printf '%x' $(( (1 << CPU_COUNT) - 1 )))
+        
+        echo -e "      - 检测到 CPU 核心数: ${GREEN}${CPU_COUNT}${NC} (RPS掩码: ${GREEN}${RPS_MASK}${NC})"
+        
+        # 遍历所有物理网卡
         for iface in $(ls /sys/class/net | grep -vE "^(lo|tun|docker|veth|cali|flannel|cni|dummy|kube)"); do
-            # 开启 RPS (多核分流)
+            # 开启 RPS
             if [ -f "/sys/class/net/$iface/queues/rx-0/rps_cpus" ]; then
-                echo "f" > "/sys/class/net/$iface/queues/rx-0/rps_cpus" 2>/dev/null
-                echo "      - $iface: RPS 已启用 (4核负载均衡)"
+                echo "$RPS_MASK" > "/sys/class/net/$iface/queues/rx-0/rps_cpus" 2>/dev/null
+                echo "      - $iface: RPS 已启用 (均衡到所有 ${CPU_COUNT} 个核心)"
             fi
             
-            # 关闭可能导致问题的 Offloading (解决断流/兼容性)
-            # TProxy 模式下，GRO/LRO 经常导致校验和错误，关闭它非常重要
+            # 关闭 Offloading (TProxy 模式下必须关闭，否则断流/校验和错误)
             if command -v ethtool >/dev/null 2>&1; then
                  ethtool -K "$iface" gro off lro off >/dev/null 2>&1
-                 echo "      - $iface: GRO/LRO 硬件卸载已关闭 (提升TProxy稳定性)"
+                 echo "      - $iface: GRO/LRO 硬件卸载已关闭 (保障 TProxy 稳定性)"
             fi
+        done
+
+        # 确保 TProxy 必要的 rp_filter 对物理网卡生效
+        for iface in $(ls /sys/class/net | grep -vE "^(lo|tun|docker|veth)"); do
+             sysctl -w net.ipv4.conf.$iface.rp_filter=0 >/dev/null 2>&1
         done
 
         echo -e "${GREEN}✅ 内核优化(Pro)完成${NC}"
@@ -84,8 +92,6 @@ EOF
     generate_network_script() {
         echo -e "${BLUE}>>> 生成 TProxy 网络接管脚本 (仅局域网)...${NC}"
         
-        # 注意：这里我们让生成的脚本去读取 $IFACE_FILE，而不是在生成时写死
-        # 这样用户如果换网口，只需改文件不需要重新生成脚本
         cat > "$RULE_SCRIPT" <<EOF
 #!/bin/bash
 # Mihomo TProxy 网络管理器 (局域网专用版)
@@ -118,7 +124,6 @@ enable_rules() {
     iptables -t mangle -F MIHOMO
 
     # --- 规则排除区 (直连网段) ---
-    # 目的地址是局域网的，直接放行 (RETURN)
     iptables -t mangle -A MIHOMO -d 0.0.0.0/8 -j RETURN
     iptables -t mangle -A MIHOMO -d 10.0.0.0/8 -j RETURN
     iptables -t mangle -A MIHOMO -d 127.0.0.0/8 -j RETURN
@@ -129,17 +134,14 @@ enable_rules() {
     iptables -t mangle -A MIHOMO -d 240.0.0.0/4 -j RETURN
     
     # --- 流量打标 ---
-    # 只有 TCP/UDP 流量才进 TProxy
     iptables -t mangle -A MIHOMO -p tcp -j TPROXY --on-port \$TPROXY_PORT --tproxy-mark \$FWMARK
     iptables -t mangle -A MIHOMO -p udp -j TPROXY --on-port \$TPROXY_PORT --tproxy-mark \$FWMARK
 
     # 3. 应用规则到 PREROUTING (局域网流量入口)
-    # 这条规则意味着：所有进入本机的流量，都去走一遍 MIHOMO 链
     iptables -t mangle -C PREROUTING -j MIHOMO 2>/dev/null || \
     iptables -t mangle -A PREROUTING -j MIHOMO
 
     # 4. DNS 劫持 (53 -> 1053)
-    # 强制局域网设备的 DNS 请求走 Mihomo 的 DNS
     iptables -t nat -N MIHOMO_DNS 2>/dev/null
     iptables -t nat -F MIHOMO_DNS
     iptables -t nat -A MIHOMO_DNS -p udp --dport 53 -j REDIRECT --to-ports \$DNS_PORT
@@ -150,7 +152,6 @@ enable_rules() {
     iptables -t nat -A PREROUTING -j MIHOMO_DNS
 
     # 5. 开启 NAT (保证回程)
-    # 如果不做 SNAT/Masquerade，回包可能会找不到路
     if [ -n "\$IFACE" ]; then
         iptables -t nat -C POSTROUTING -o "\$IFACE" -j MASQUERADE 2>/dev/null || \
         iptables -t nat -A POSTROUTING -o "\$IFACE" -j MASQUERADE
@@ -162,12 +163,12 @@ enable_rules() {
 disable_rules() {
     echo "  - [Network] 清理 TProxy 规则..."
     
-    # 清理 PREROUTING (局域网 Mangle)
+    # 清理 PREROUTING (Mangle)
     iptables -t mangle -D PREROUTING -j MIHOMO 2>/dev/null
     iptables -t mangle -F MIHOMO 2>/dev/null
     iptables -t mangle -X MIHOMO 2>/dev/null
 
-    # 清理 PREROUTING (DNS Nat)
+    # 清理 PREROUTING (Nat)
     iptables -t nat -D PREROUTING -j MIHOMO_DNS 2>/dev/null
     iptables -t nat -F MIHOMO_DNS 2>/dev/null
     iptables -t nat -X MIHOMO_DNS 2>/dev/null
@@ -283,18 +284,35 @@ EOF
         echo -e "${GREEN}✅ 服务已配置 (开机自启)${NC}"
     }
 
-    # ==================== 安装与菜单 (保持不变) ====================
+    # ==================== 2. 在线下载安装 (含通用架构选择) ====================
     install_online() {
-        echo -e "${BLUE}>>> 正在获取 Mihomo 版本...${NC}"
+        echo -e "${BLUE}>>> 正在检测系统架构...${NC}"
         local ARCH=$(uname -m)
         local MIHOMO_ARCH=""
-        case "$ARCH" in
-            x86_64) MIHOMO_ARCH="amd64" ;;
-            aarch64) MIHOMO_ARCH="arm64" ;;
-            armv7l) MIHOMO_ARCH="armv7" ;;
-            *) echo -e "${RED}不支持的架构${NC}"; return 1 ;;
-        esac
+        
+        # 【升级】x86 架构细分逻辑
+        if [ "$ARCH" == "x86_64" ]; then
+            echo -e "${YELLOW}检测到 x86_64 架构，请选择指令集版本：${NC}"
+            echo "1. amd64 (标准版 - 兼容性好)"
+            echo "2. amd64-v3 (高性能版 - AVX2, 加解密更快)"
+            read -p "请选择 [默认1]: " cpu_choice < /dev/tty
+            
+            if [ "$cpu_choice" == "2" ]; then
+                MIHOMO_ARCH="amd64-v3"
+                echo -e "已选择: ${GREEN}amd64-v3 (高性能)${NC}"
+            else
+                MIHOMO_ARCH="amd64"
+                echo -e "已选择: ${GREEN}amd64 (标准兼容)${NC}"
+            fi
+        elif [ "$ARCH" == "aarch64" ]; then
+            MIHOMO_ARCH="arm64"
+        elif [ "$ARCH" == "armv7l" ]; then
+            MIHOMO_ARCH="armv7"
+        else
+            echo -e "${RED}不支持的架构: $ARCH${NC}"; return 1
+        fi
 
+        echo -e "${BLUE}>>> 正在获取 Mihomo 版本信息...${NC}"
         LATEST_VER=$(curl -s -m 5 https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [ -z "$LATEST_VER" ]; then
             read -p "获取失败，输入版本号 (如 v1.18.5): " LATEST_VER < /dev/tty
@@ -306,6 +324,11 @@ EOF
         echo -e "正在下载: ${GREEN}${proxy_prefix}${TARGET_URL}${NC}"
         rm -f /tmp/mihomo.gz
         curl -L -o /tmp/mihomo.gz "${proxy_prefix}${TARGET_URL}" --progress-bar
+
+        if [ ! -s /tmp/mihomo.gz ]; then
+            echo -e "${RED}❌ 下载失败。${NC}"
+            return 1
+        fi
 
         gzip -d /tmp/mihomo.gz
         mv /tmp/mihomo "$BIN_PATH"
@@ -338,9 +361,9 @@ EOF
         echo -e "${GREEN}✅ 卸载完成${NC}"
     }
 
-    echo -e "${GREEN}=== Mihomo TProxy (纯局域网 Pro版) ===${NC}"
+    echo -e "${GREEN}=== Mihomo TProxy (通用全平台版) ===${NC}"
     echo "1. 刷新内核与网络规则 (含网卡设置)"
-    echo "2. 在线安装"
+    echo "2. 在线安装 (支持 x86 v3)"
     echo "3. 本地/仓库安装"
     echo "4. 服务管理"
     echo "5. 卸载"
