@@ -1,6 +1,6 @@
 #!/bin/bash
 function module_netmgr() {
-    # === 内部函数：安装 NetworkManager ===
+    # === 内部函数：自动安装 NetworkManager ===
     install_nm() {
         echo -e "${YELLOW}>>> 正在安装 NetworkManager...${NC}"
         
@@ -14,6 +14,7 @@ function module_netmgr() {
         if apt-get install -y network-manager; then
             echo -e "${GREEN}软件安装成功。${NC}"
             
+            # [关键] 强制开启管理权限 (解决 Armbian Server 版 managed=false 问题)
             if [ -f /etc/NetworkManager/NetworkManager.conf ]; then
                 echo ">>> 正在配置 NetworkManager 接管网卡..."
                 sed -i 's/managed=false/managed=true/g' /etc/NetworkManager/NetworkManager.conf
@@ -48,7 +49,7 @@ function module_netmgr() {
             case $missing_opt in
                 1) 
                     install_nm
-                    continue 
+                    continue # 安装后跳过剩余代码，重新开始循环检测
                     ;;
                 0) return 1 ;;
                 *) echo "无效输入。"; continue ;;
@@ -79,18 +80,20 @@ function module_netmgr() {
         
         # 获取连接名称
         CON_NAME=$(nmcli -t -f NAME,DEVICE connection show --active | grep ":${DEFAULT_IFACE}" | cut -d: -f1 | head -n1)
+        # 如果没找到活跃的，找非活跃的
         if [ -z "$CON_NAME" ]; then CON_NAME=$(nmcli -t -f NAME,DEVICE connection show | grep ":${DEFAULT_IFACE}" | cut -d: -f1 | head -n1); fi
         
-        # [核心修复] 如果找不到连接配置，自动创建
+        # === [核心修复] === 
+        # 如果找不到连接配置 (即你截图中报错的情况)，自动创建一个
         if [ -z "$CON_NAME" ]; then 
             echo -e "${YELLOW}>>> 未找到网卡 ${DEFAULT_IFACE} 的连接配置，正在自动创建...${NC}"
             
-            # 尝试创建标准以太网连接
+            # 创建一个名为 "网卡名" 的标准以太网连接
             if nmcli con add type ethernet con-name "${DEFAULT_IFACE}" ifname "${DEFAULT_IFACE}"; then
                 echo -e "${GREEN}✅ 已成功创建连接配置: ${DEFAULT_IFACE}${NC}"
-                # 尝试激活
+                # 尝试激活它
                 nmcli connection up "${DEFAULT_IFACE}" >/dev/null 2>&1
-                # 赋值连接名，继续后续流程
+                # 更新变量
                 CON_NAME="${DEFAULT_IFACE}"
                 sleep 1
             else
@@ -101,10 +104,10 @@ function module_netmgr() {
             fi
         fi
 
-        # 定位配置文件
+        # 定位配置文件路径 (用于回滚备份)
         CON_FILE=$(grep -l "id=$CON_NAME" /etc/NetworkManager/system-connections/*.nmconnection 2>/dev/null | head -n 1)
 
-        # --- 子函数 ---
+        # --- 子函数定义 ---
 
         validate_ip() {
             local ip=$1
@@ -132,19 +135,22 @@ function module_netmgr() {
         apply_changes_safe() {
             echo -e "\n${YELLOW}⚠️  准备应用更改...${NC}"
             
+            # 只有找到文件才备份，找不到(比如刚创建还没落盘)就跳过备份直接应用
             if [ -n "$CON_FILE" ] && [ -f "$CON_FILE" ]; then
                 cp "$CON_FILE" /tmp/nm_backup.nmconnection
             else
-                echo -e "${RED}无法定位配置文件，跳过安全模式，直接应用。${NC}"
-                nmcli connection up "$CON_NAME"
-                return
+                # 这种情况很少见，但也处理一下
+                echo -e "${GRAY}提示：未找到物理配置文件，本次操作将不包含回滚备份。${NC}"
             fi
 
+            # 生成回滚脚本
             cat > /tmp/revert_net.sh <<EOF
 #!/bin/bash
 if [ ! -f /tmp/net_confirmed.lock ]; then
-    cp /tmp/nm_backup.nmconnection "$CON_FILE"
-    chmod 600 "$CON_FILE"
+    if [ -f /tmp/nm_backup.nmconnection ]; then
+        cp /tmp/nm_backup.nmconnection "$CON_FILE"
+        chmod 600 "$CON_FILE"
+    fi
     nmcli connection reload
     nmcli connection up "$CON_NAME"
 fi
