@@ -4,7 +4,6 @@ function module_netmgr() {
     install_nm() {
         echo -e "${YELLOW}>>> 正在安装 NetworkManager...${NC}"
         
-        # 检查 root 权限
         if [ "$EUID" -ne 0 ]; then
              echo -e "${RED}错误：请使用 root (sudo) 权限运行。${NC}"
              read -p "按回车键返回..." < /dev/tty
@@ -15,8 +14,6 @@ function module_netmgr() {
         if apt-get install -y network-manager; then
             echo -e "${GREEN}软件安装成功。${NC}"
             
-            # [关键步骤] 修改配置允许 NM 管理网卡
-            # 许多 Debian/Armbian Server 版本默认设置 managed=false 导致无法管理
             if [ -f /etc/NetworkManager/NetworkManager.conf ]; then
                 echo ">>> 正在配置 NetworkManager 接管网卡..."
                 sed -i 's/managed=false/managed=true/g' /etc/NetworkManager/NetworkManager.conf
@@ -51,7 +48,6 @@ function module_netmgr() {
             case $missing_opt in
                 1) 
                     install_nm
-                    # 安装完成后，continue 跳过后续代码，回到循环开头重新检测 nmcli
                     continue 
                     ;;
                 0) return 1 ;;
@@ -65,7 +61,6 @@ function module_netmgr() {
         DETECTED_IFACE=$(ip route | grep default | awk '{print $5}' | head -n1)
         [ -z "$DETECTED_IFACE" ] && DETECTED_IFACE=$(ls /sys/class/net | grep -v lo | head -n1)
         
-        # 如果依然找不到网卡 (极少见情况)
         if [ -z "$DETECTED_IFACE" ]; then
              echo -e "${RED}错误：未找到任何物理网卡。${NC}"
              read -p "按回车键返回..." < /dev/tty
@@ -82,24 +77,35 @@ function module_netmgr() {
 
         DEFAULT_IFACE=${USER_IFACE:-$DETECTED_IFACE}
         
-        # 获取连接名称 (兼容带空格的情况)
+        # 获取连接名称
         CON_NAME=$(nmcli -t -f NAME,DEVICE connection show --active | grep ":${DEFAULT_IFACE}" | cut -d: -f1 | head -n1)
-        # 如果没找到活跃连接，尝试找未活跃的
         if [ -z "$CON_NAME" ]; then CON_NAME=$(nmcli -t -f NAME,DEVICE connection show | grep ":${DEFAULT_IFACE}" | cut -d: -f1 | head -n1); fi
         
+        # [核心修复] 如果找不到连接配置，自动创建
         if [ -z "$CON_NAME" ]; then 
-            echo -e "${RED}未找到网卡 ${DEFAULT_IFACE} 的连接配置 (Connection Profile)。${NC}"
-            echo -e "${YELLOW}提示：如果你刚安装 NetworkManager，请尝试重启系统，或使用 'nmtui' 创建一个连接。${NC}"
-            read -p "按回车键返回..." < /dev/tty
-            return 1
+            echo -e "${YELLOW}>>> 未找到网卡 ${DEFAULT_IFACE} 的连接配置，正在自动创建...${NC}"
+            
+            # 尝试创建标准以太网连接
+            if nmcli con add type ethernet con-name "${DEFAULT_IFACE}" ifname "${DEFAULT_IFACE}"; then
+                echo -e "${GREEN}✅ 已成功创建连接配置: ${DEFAULT_IFACE}${NC}"
+                # 尝试激活
+                nmcli connection up "${DEFAULT_IFACE}" >/dev/null 2>&1
+                # 赋值连接名，继续后续流程
+                CON_NAME="${DEFAULT_IFACE}"
+                sleep 1
+            else
+                echo -e "${RED}❌ 自动创建失败。${NC}"
+                echo -e "${YELLOW}请尝试手动运行: nmcli con add type ethernet con-name \"${DEFAULT_IFACE}\" ifname \"${DEFAULT_IFACE}\"${NC}"
+                read -p "按回车键返回..." < /dev/tty
+                return 1
+            fi
         fi
 
-        # 定位配置文件 (用于回滚备份)
+        # 定位配置文件
         CON_FILE=$(grep -l "id=$CON_NAME" /etc/NetworkManager/system-connections/*.nmconnection 2>/dev/null | head -n 1)
 
-        # --- 子函数定义 ---
+        # --- 子函数 ---
 
-        # 校验 IP 格式 (0-255)
         validate_ip() {
             local ip=$1
             local stat=1
@@ -126,7 +132,6 @@ function module_netmgr() {
         apply_changes_safe() {
             echo -e "\n${YELLOW}⚠️  准备应用更改...${NC}"
             
-            # 备份逻辑
             if [ -n "$CON_FILE" ] && [ -f "$CON_FILE" ]; then
                 cp "$CON_FILE" /tmp/nm_backup.nmconnection
             else
@@ -135,7 +140,6 @@ function module_netmgr() {
                 return
             fi
 
-            # 生成回滚脚本 (只有锁文件不存在时才回滚)
             cat > /tmp/revert_net.sh <<EOF
 #!/bin/bash
 if [ ! -f /tmp/net_confirmed.lock ]; then
@@ -149,7 +153,6 @@ EOF
             rm -f /tmp/net_confirmed.lock
 
             echo -e "${YELLOW}>>> 启动 60秒 安全倒计时...${NC}"
-            # 后台运行倒计时
             (sleep 60; if [ -f /tmp/revert_net.sh ]; then bash /tmp/revert_net.sh >/dev/null 2>&1; rm -f /tmp/revert_net.sh; fi) &
 
             if nmcli connection up "$CON_NAME"; then
@@ -203,7 +206,7 @@ EOF
             apply_changes_safe
         }
 
-        # === 内部功能菜单 ===
+        # === 菜单 ===
         while true; do
             show_status
             echo -e "\n1) 设为 DHCP (自动获取)"
@@ -216,7 +219,7 @@ EOF
                 1) set_dhcp ;;
                 2) set_static ;;
                 3) ping -c 4 223.5.5.5; read -p "按回车键继续..." < /dev/tty ;;
-                0) return 0 ;; # 退出函数返回主菜单
+                0) return 0 ;;
                 *) echo "无效选项。" ;;
             esac
         done
