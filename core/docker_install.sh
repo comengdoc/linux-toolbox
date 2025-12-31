@@ -29,7 +29,6 @@ function module_docker_install() {
 
     uninstall_docker() {
         echo -e "${RED}⚠️  卸载 Docker 引擎${NC}"
-        # [修复] 增加 < /dev/tty
         read -p "保留数据 (/var/lib/docker)? [y/N] " keep_data < /dev/tty
         systemctl stop docker >/dev/null 2>&1
         apt-mark unhold docker-ce docker-ce-cli >/dev/null 2>&1
@@ -55,6 +54,9 @@ function module_docker_install() {
         echo ">>> 添加阿里云 Docker GPG 密钥..."
         curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/${TARGET_OS}/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
         
+        # [修改 1] 强制修正 GPG 密钥权限，防止 apt 读取失败
+        chmod a+r /etc/apt/keyrings/docker.gpg
+        
         echo ">>> 添加软件源 (OS: $TARGET_OS / Code: $VERSION_CODE)..."
         echo "deb [arch=$ARCH_TYPE signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/${TARGET_OS} ${VERSION_CODE} stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
         apt-get update
@@ -76,8 +78,6 @@ function module_docker_install() {
                  echo "------------------------------------------------"
                  
                  while true; do
-                     # [修复] 增加 < /dev/tty
-                     # [新增] 0返回提示
                      read -p "请输入版本编号 (例如 1, 输入 0 返回): " SELECT_NUM < /dev/tty
                      
                      if [ "$SELECT_NUM" == "0" ]; then return; fi
@@ -110,16 +110,17 @@ function module_docker_install() {
         echo -e "\n${BLUE}>>> 🐳 Docker 镜像加速器配置${NC}"
         echo -e "${YELLOW}提示：由于国内网络原因，建议配置加速器。${NC}"
         echo "请输入加速器地址 (例如: https://xxxx.mirror.aliyuncs.com)"
-        echo "如果不知道，直接回车将使用【默认公共源】(可能不稳定)。"
+        echo "如果不知道，直接回车将使用【默认公共源】。"
         
-        # [修复] 增加 < /dev/tty
         read -p "地址: " USER_MIRROR < /dev/tty
 
         if [ -n "$USER_MIRROR" ]; then
             if [[ "$USER_MIRROR" != http* ]]; then USER_MIRROR="https://${USER_MIRROR}"; fi
+            # [修改 2] 用户自定义在前，Daocloud 兜底
             MIRRORS="[\"$USER_MIRROR\", \"https://docker.m.daocloud.io\"]"
         else
-            MIRRORS="[\"https://docker.m.daocloud.io\",\"https://huecker.io\",\"https://docker.nju.edu.cn\"]"
+            # [修改 2] 调整默认源顺序，优先使用南京大学源 (NJU)，移除不稳定源
+            MIRRORS="[\"https://docker.nju.edu.cn\",\"https://docker.m.daocloud.io\"]"
         fi
 
         echo "应用配置..."
@@ -132,6 +133,10 @@ function module_docker_install() {
 EOF
         systemctl enable docker; systemctl restart docker
         echo -e "${GREEN}🎉 Docker 安装与配置完成!${NC}"
+        
+        # [新增] 增加对网络/代理的额外提示
+        echo -e "${YELLOW}💡 提示：如果镜像拉取仍失败，请检查网络或配置 HTTP 代理。${NC}"
+        
         docker info | grep "Registry Mirrors" -A 3
     }
 
@@ -142,7 +147,6 @@ EOF
     echo "3) 卸载 Docker"
     echo "0) 返回主菜单"
     
-    # [修复] 增加 < /dev/tty
     read -p "选择: " ch < /dev/tty
     case $ch in 
         1) install_docker_core "latest" ;; 
