@@ -13,15 +13,15 @@ function module_mount_cleaner() {
 
     clear
     echo -e "${RED}====================================================${NC}"
-    echo -e "${RED}   ☢️  Docker 挂载数据清理工具 (增强安全版) ☢️${NC}"
+    echo -e "${RED}   ☢️  Docker 挂载数据清理工具 (安全修复版) ☢️${NC}"
     echo -e "${RED}====================================================${NC}"
-    echo -e "${YELLOW}功能：扫描容器挂载的 Bind Mounts 并清理宿主机文件。${NC}"
-    echo -e "${YELLOW}安全机制：自动忽略 .sock 文件及系统关键目录。${NC}"
+    echo -e "${YELLOW}功能：扫描并清理 Docker 挂载的宿主机数据目录。${NC}"
+    echo -e "${GREEN}机制：自动跳过 [系统目录]、[.sock文件] 及 [运行中容器的数据]。${NC}"
     echo
     echo "1) 开始扫描"
     echo "0) 返回主菜单"
     
-    # [新增] 增加 0 返回选项
+    # [修复] 增加 < /dev/tty
     read -p "请选择: " START_OPT < /dev/tty
     if [[ "$START_OPT" == "0" ]]; then return; fi
 
@@ -44,6 +44,9 @@ function module_mount_cleaner() {
 
     for container in $CONTAINERS; do
         NAME=$(docker inspect --format '{{.Name}}' "$container" | sed 's/\///')
+        # [新增] 获取容器运行状态
+        STATE=$(docker inspect --format '{{.State.Status}}' "$container")
+        
         MOUNTS=$(docker inspect --format '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{println}}{{end}}{{end}}' "$container")
         
         if [ -n "$MOUNTS" ]; then
@@ -53,35 +56,45 @@ function module_mount_cleaner() {
                 SHOULD_SKIP=0
                 SKIP_REASON=""
 
-                if [[ "$path" == *".sock" ]]; then
+                # [新增] 检查 1: 如果容器正在运行，绝对禁止删除数据
+                if [[ "$STATE" == "running" ]]; then
                     SHOULD_SKIP=1
-                    SKIP_REASON="Socket 通信文件"
+                    SKIP_REASON="[保护] 容器正在运行"
                 fi
 
+                # 检查 2: .sock 文件
+                if [ $SHOULD_SKIP -eq 0 ] && [[ "$path" == *".sock" ]]; then
+                    SHOULD_SKIP=1
+                    SKIP_REASON="[保护] Socket 通信文件"
+                fi
+
+                # 检查 3: 系统关键路径
                 if [ $SHOULD_SKIP -eq 0 ]; then
                     for sys_dir in "${CRITICAL_SYS_DIRS[@]}"; do
                         if [[ "$path" == "$sys_dir" ]] || [[ "$path" == "$sys_dir/"* ]]; then
                             SHOULD_SKIP=1
-                            SKIP_REASON="系统关键路径 ($sys_dir)"
+                            SKIP_REASON="[系统] 关键路径 ($sys_dir)"
                             break
                         fi
                     done
                 fi
 
+                # 检查 4: 受保护根目录 (防止误删 /root, /home 等顶级目录)
                 if [ $SHOULD_SKIP -eq 0 ]; then
                     for root_dir in "${PROTECTED_ROOTS[@]}"; do
                         clean_path=${path%/}
                         clean_root=${root_dir%/}
                         if [[ "$clean_path" == "$clean_root" ]]; then
                             SHOULD_SKIP=1
-                            SKIP_REASON="受保护的根目录 (仅允许删子文件夹)"
+                            SKIP_REASON="[保护] 根目录保护 (仅允许删子文件夹)"
                             break
                         fi
                     done
                 fi
 
                 if [ $SHOULD_SKIP -eq 1 ]; then
-                    echo "[$NAME] $path ($SKIP_REASON)" >> "$SKIP_LOG"
+                    # 记录跳过原因
+                    printf "%-30s | %-20s | %s\n" "${NAME:0:30}" "$SKIP_REASON" "$path" >> "$SKIP_LOG"
                 else
                     echo "$path|$NAME" >> "$TEMP_LIST"
                 fi
@@ -89,20 +102,27 @@ function module_mount_cleaner() {
         fi
     done
 
+    # 展示跳过的项目
     if [ -s "$SKIP_LOG" ]; then
         echo -e "\n${CYAN}=== 🛡️  已自动安全跳过 (不会删除) ===${NC}"
-        cat "$SKIP_LOG" | awk '{printf "  %-30s %s\n", $1, $2 " " $3}'
+        echo -e "${GRAY}容器名                         | 原因                 | 路径${NC}"
+        echo "----------------------------------------------------------------"
+        cat "$SKIP_LOG"
+        echo "----------------------------------------------------------------"
     fi
 
+    # 如果没有可删除的
     if [ ! -s "$TEMP_LIST" ]; then
-        echo -e "\n${GREEN}✅ 扫描完成：没有发现需要清理的数据目录。${NC}"
+        echo -e "\n${GREEN}✅ 扫描完成：没有发现需要清理的残留数据。${NC}"
+        echo -e "${GRAY}(注：运行中容器的数据已被自动保护)${NC}"
         rm -f "$TEMP_LIST" "$SKIP_LOG"
         return
     fi
 
+    # 展示待删除项目
     echo -e "\n${RED}=== 🗑️  以下目录/文件将被永久删除 ===${NC}"
     echo "--------------------------------------------------------"
-    printf "%-45s %-20s\n" "宿主机路径" "来源容器"
+    printf "%-45s %-20s\n" "宿主机路径" "来源容器 (已停止)"
     echo "--------------------------------------------------------"
     sort -u "$TEMP_LIST" | while IFS='|' read -r path name; do
         if [ -e "$path" ]; then
