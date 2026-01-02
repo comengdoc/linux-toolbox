@@ -282,25 +282,30 @@ while true; do
     echo -e "${BLUE}====================================================${NC}"
     echo -e "       🛠️  Armbian/Docker 工具箱 (v3.5 +Git版)"
     echo -e "${BLUE}====================================================${NC}"
-    echo -e " ${GREEN}1.${NC} 安装/管理 Docker"
-    echo -e " ${GREEN}2.${NC} Mihomo (TUN 模式)    ${YELLOW}[常用]${NC}"
-    echo -e " ${GREEN}3.${NC} Mihomo (TProxy 模式) ${YELLOW}[高级]${NC}"
-    echo -e " ${GREEN}4.${NC} BBR 加速管理"
-    echo -e " ${GREEN}5.${NC} 网络/IP设置"
-    echo -e " ${GREEN}6.${NC} R5C LED 修复"
+    
+    # --- 基础/网络类 ---
+    echo -e " ${GREEN}1.${NC} 安装/管理 DOCKER"
+    echo -e " ${GREEN}2.${NC} BBR 加速管理"
+    echo -e " ${GREEN}3.${NC} 网络/IP设置"
+    
+    # --- 备份/清理类 ---
+    echo -e " ${YELLOW}4.${NC} Docker 镜像备份/还原"
+    echo -e " ${YELLOW}5.${NC} 容器智能备份"
+    echo -e " ${YELLOW}6.${NC} 容器智能恢复"
+    echo -e " ${YELLOW}7.${NC} Docker 容器挂载清理"
+    echo -e " ${RED}8.${NC} 彻底清理Docker容器"
+    echo -e " ${GREEN}9.${NC} 磁盘/分区管理"
     echo -e "${BLUE}----------------------------------------------------${NC}"
-    echo -e " ${YELLOW}7.${NC} Docker 镜像备份/恢复"
-    echo -e " ${YELLOW}8.${NC} 容器智能备份"
-    echo -e " ${YELLOW}9.${NC} 容器智能恢复"
-    echo -e " ${RED}10.${NC} 彻底清理 Docker"
-    echo -e "${BLUE}----------------------------------------------------${NC}"
-    echo -e " ${GREEN}11.${NC} 安装 1Panel 面板"
-    echo -e " ${GREEN}12.${NC} 磁盘/分区管理"
+    
+    # --- 核心/高级功能类 ---
+    echo -e " ${CYAN}10.${NC} Git智能助手（Smart Git)"
+    echo -e " ${GREEN}11.${NC} Mihomo (TUN模式)"
+    echo -e " ${GREEN}12.${NC} Mihomo (Tproxy模式)"
     echo -e " ${GREEN}13.${NC} 网卡流量监控"
-    echo -e " ${RED}14.${NC} Docker 挂载清理"
-    echo -e " ${GREEN}15.${NC} 管理快捷键"
-    echo -e "${BLUE}----------------------------------------------------${NC}"
-    echo -e " ${CYAN}16.${NC} Git 智能助手 (Smart Git) ${YELLOW}[新增]${NC}"
+    echo -e " ${GREEN}14.${NC} 安装1panel V2面板"
+    echo -e " ${GREEN}15.${NC} R5C/LED修复"
+    echo -e " ${GREEN}16.${NC} 管理快捷键"
+    
     echo -e "${BLUE}----------------------------------------------------${NC}"
     echo -e " ${GREEN}0.${NC} 退出脚本"
     echo
@@ -309,39 +314,42 @@ while true; do
 
     case "$choice" in
         1) run_safe "docker_install.sh" "module_docker_install" ;;
-        2) 
+        2) run_safe "bbr.sh"            "module_bbr" ;;
+        3) run_safe "network.sh"        "module_netmgr" ;;
+        
+        4) run_safe "docker_image.sh"   "module_docker_image_tool" ;;
+        5) run_safe "backup.sh"         "module_backup" ;;
+        6) run_safe "restore.sh"        "module_restore_smart" ;;
+        7) run_safe "mount_clean.sh"    "module_mount_cleaner" ;;
+        8) run_safe "docker_clean.sh"   "module_clean_docker" ;;
+        9) run_safe "disk.sh"           "module_disk_manager" ;;
+        
+        10) run_external_script "Smart_Git_V7.sh" ;;
+        11) 
            # [Mihomo TUN]
            sync_mihomo_folder
            if [ $? -eq 0 ]; then
                run_safe "mihomo_tun.sh" "module_mihomo_tun"
            fi
            ;;
-        3) 
+        12) 
            # [Mihomo TProxy]
            sync_mihomo_folder
            if [ $? -eq 0 ]; then
                run_safe "mihomo_tp.sh" "module_mihomo_tp"
            fi
            ;;
-        4) run_safe "bbr.sh"            "module_bbr" ;;
-        5) run_safe "network.sh"        "module_netmgr" ;;
-        6) run_safe "led.sh"            "module_led_fix" ;;
-        7) run_safe "docker_image.sh"   "module_docker_image_tool" ;;
-        8) run_safe "backup.sh"         "module_backup" ;;
-        9) run_safe "restore.sh"        "module_restore_smart" ;;
-        10) run_safe "docker_clean.sh"   "module_clean_docker" ;;
-        11) run_safe "1panel.sh"        "module_1panel" ;;
-        12) run_safe "disk.sh"          "module_disk_manager" ;;
         13) run_safe "monitor.sh"       "module_nic_monitor" ;;
-        14) run_safe "mount_clean.sh"   "module_mount_cleaner" ;;
-        15) manage_shortcut ;;
-        16) run_external_script "Smart_Git_V7.sh" ;;
+        14) run_safe "1panel.sh"        "module_1panel" ;;
+        15) run_safe "led.sh"           "module_led_fix" ;;
+        16) manage_shortcut ;;
+        
         0) exit 0 ;;
         *) echo "无效选项。" ;;
     esac
     
     echo
-    if [ "$choice" != "0" ] && [ "$choice" != "15" ]; then
+    if [ "$choice" != "0" ] && [ "$choice" != "16" ]; then
         read -p "按回车键返回主菜单..." < /dev/tty
     fi
 done
