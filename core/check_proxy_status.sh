@@ -9,6 +9,7 @@ NC='\033[0m' # No Color
 
 # --- 核心配置参数 ---
 # 这是防火墙(iptables)转发的目标端口
+# 请确保这里与 configure_tproxy.sh 中的 TPROXY_PORT 一致 (当前为 7894)
 TARGET_PORT=7894
 PROXY_FWMARK=0x1
 PROXY_ROUTE_TABLE=100
@@ -16,11 +17,12 @@ PROXY_ROUTE_TABLE=100
 echo -e "${CYAN}=== 系统代理状态检测模块 (Smart Diagnostic) ===${NC}"
 
 # ===========================
-# 1. 核心服务与端口智能检测
+# 1. 核心服务、端口及自启检测
 # ===========================
 CORE_STATUS="未知"
 RUNNING_CORE=""
 PID=""
+AUTO_START_STATUS="${YELLOW}未知${NC}"
 
 # 检测 Systemd 服务状态并获取 PID
 if systemctl is-active --quiet mihomo; then
@@ -35,7 +37,16 @@ else
     CORE_STATUS="${RED}未运行${NC}"
 fi
 
-echo -e "核心服务: [ ${RUNNING_CORE:-无} ] -> $CORE_STATUS"
+# 如果检测到核心服务，检查是否开机自启
+if [ -n "$RUNNING_CORE" ]; then
+    if systemctl is-enabled --quiet "$RUNNING_CORE"; then
+        AUTO_START_STATUS="${GREEN}已开启 (Enabled)${NC}"
+    else
+        AUTO_START_STATUS="${RED}未开启 (Disabled)${NC}"
+    fi
+fi
+
+echo -e "核心服务: [ ${RUNNING_CORE:-无} ] -> $CORE_STATUS | 自启: $AUTO_START_STATUS"
 
 # --- 端口智能诊断 ---
 if [ -n "$RUNNING_CORE" ]; then
