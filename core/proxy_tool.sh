@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-# Linux 本机与 Docker 临时代理工具 (Proxy Tool)
+# Linux 本机与 Docker 临时代理工具 (极简合并版)
 # =========================================================
 
 # 颜色定义
@@ -39,91 +39,87 @@ get_proxy_info() {
     SOCKS_URL="socks5://$PROXY_IP:$PROXY_PORT"
 }
 
-# 2. 设置 Docker 代理 (不变)
-set_docker_proxy() {
-    get_proxy_info
-    echo -e "${BLUE}>>> 正在配置 Docker 守护进程代理...${NC}"
-    mkdir -p "$DOCKER_DIR"
-    cat > "$DOCKER_CONF" <<EOF
+# 2. 智能切换 Docker 代理 (合并了原来的开启和关闭)
+toggle_docker_proxy() {
+    if [ -f "$DOCKER_CONF" ]; then
+        # --- 如果已存在，则执行关闭逻辑 ---
+        echo -e "\n${BLUE}>>> 检测到 Docker 代理已开启，正在执行【关闭】操作...${NC}"
+        rm -f "$DOCKER_CONF"
+        echo -e "${YELLOW}正在重载 Docker 服务...${NC}"
+        systemctl daemon-reload
+        systemctl restart docker
+        echo -e "${GREEN}✅ Docker 代理已成功移除，恢复直连。${NC}"
+    else
+        # --- 如果不存在，则执行开启逻辑 ---
+        echo -e "\n${BLUE}>>> 检测到 Docker 代理未配置，正在执行【开启】操作...${NC}"
+        get_proxy_info # 获取 IP 端口
+        
+        mkdir -p "$DOCKER_DIR"
+        cat > "$DOCKER_CONF" <<EOF
 [Service]
 Environment="HTTP_PROXY=$PROXY_URL"
 Environment="HTTPS_PROXY=$PROXY_URL"
 Environment="NO_PROXY=localhost,127.0.0.1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,::1"
 EOF
-    echo -e "${YELLOW}正在重载 Docker 服务...${NC}"
-    systemctl daemon-reload
-    systemctl restart docker
-    echo -e "${GREEN}✅ Docker 代理已开启！${NC}"
-    read -p "按回车键返回菜单..."
-}
-
-# 3. 清除 Docker 代理 (不变)
-unset_docker_proxy() {
-    echo -e "${BLUE}>>> 正在清除 Docker 代理...${NC}"
-    if [ -f "$DOCKER_CONF" ]; then
-        rm -f "$DOCKER_CONF"
+        echo -e "${YELLOW}正在重载 Docker 服务...${NC}"
         systemctl daemon-reload
         systemctl restart docker
-        echo -e "${GREEN}✅ Docker 代理已移除。${NC}"
-    else
-        echo -e "${YELLOW}Docker 代理配置不存在。${NC}"
+        echo -e "${GREEN}✅ Docker 代理已开启！(仅限 pull/build 生效)${NC}"
     fi
     read -p "按回车键返回菜单..."
 }
 
-# 4. 【核心修改】进入代理终端模式
+# 3. 进入代理终端模式
 enter_proxy_shell() {
     get_proxy_info
     
     echo -e "\n${GREEN}>>> 正在启动【代理模式】临时终端...${NC}"
-    echo -e "${YELLOW}提示: 在此模式下输入的所有命令(curl/docker run等)均自动走代理。${NC}"
-    echo -e "${YELLOW}操作: 输入 'exit' 或按 Ctrl+D 即可退出代理模式，返回菜单。${NC}"
+    echo -e "${YELLOW}提示: 在此模式下，curl / docker run 等命令自动走代理。${NC}"
+    echo -e "${YELLOW}操作: 输入 'exit' 或按 Ctrl+D 即可退出模式并【自动关闭代理】。${NC}"
     echo -e "-----------------------------------------------------"
     
-    # 导出变量到即将启动的子 Shell
     export http_proxy="$PROXY_URL"
     export https_proxy="$PROXY_URL"
     export all_proxy="$SOCKS_URL"
     export no_proxy="localhost,127.0.0.1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12"
     
-    # 启动一个新的 bash，并修改提示符让用户知道状态
-    # --rcfile /dev/null 防止加载用户配置覆盖变量，或者直接用 bash 继承当前环境
-    PS1="[\u@\h \W (ProxyMode)]\$ " bash --norc
+    PS1="[\u@\h \W (Proxy)]\$ " bash --norc
     
     echo -e "\n${BLUE}>>> 已退出代理模式，环境恢复直连。${NC}"
     read -p "按回车键返回菜单..."
 }
 
-# 5. 【核心修改】打印 unset 命令并退出脚本
-show_unset_command() {
-    echo -e "\n${GREEN}=== 清理指南 ===${NC}"
-    echo -e "由于脚本即将退出，请手动复制执行以下命令以清理环境："
-    echo -e "\n${YELLOW}unset http_proxy https_proxy all_proxy no_proxy${NC}\n"
-    exit 0
-}
-
 # ==================== 主菜单 ====================
 show_menu() {
     while true; do
+        # 每次循环都检查 Docker 代理状态
+        if [ -f "$DOCKER_CONF" ]; then
+            DOCKER_STATUS="${GREEN}已开启 ✅${NC}"
+            TOGGLE_ACTION="关闭"
+        else
+            DOCKER_STATUS="${RED}未开启 ❌${NC}"
+            TOGGLE_ACTION="开启"
+        fi
+
         clear
         echo -e "${BLUE}=======================================${NC}"
         echo -e "   本机与 Docker 临时代理管理工具"
         echo -e "${BLUE}=======================================${NC}"
-        echo "1. 开启 Docker 代理 (用于 pull/update 镜像)"
-        echo "2. 关闭 Docker 代理 (恢复直连)"
+        
+        # 动态显示状态和动作
+        echo -e "1. ${TOGGLE_ACTION} Docker 代理 [当前状态: ${DOCKER_STATUS}]"
+        echo -e "   ${YELLOW}(用于解决 docker pull 镜像拉取失败问题)${NC}"
         echo "---------------------------------------"
-        echo "3. 进入 代理模式终端 (直接在这里输入命令!)"
-        echo "4. 退出并显示清理命令"
+        echo -e "2. 进入 代理终端 [临时 Shell]"
+        echo -e "   ${YELLOW}(用于 curl / docker run 容器科学上网)${NC}"
         echo "---------------------------------------"
-        echo "0. 返回上级菜单/退出"
+        echo "0. 返回上级菜单"
         echo -e "${BLUE}=======================================${NC}"
         
         read -p "请选择: " OPT
         case $OPT in
-            1) set_docker_proxy ;;
-            2) unset_docker_proxy ;;
-            3) enter_proxy_shell ;;
-            4) show_unset_command ;;
+            1) toggle_docker_proxy ;;
+            2) enter_proxy_shell ;;
             0) exit 0 ;;
             *) echo -e "${RED}无效选项${NC}"; sleep 1 ;;
         esac
