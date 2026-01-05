@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# 模块化加载器 (Loader) - v3.6 (集成代理检测版)
+# 模块化加载器 (Loader) - v3.7 (集成TProxy本地代理版)
 # ==============================================================================
 
 # [基础配置]
@@ -119,7 +119,6 @@ sync_mihomo_folder() {
 }
 
 # ==================== 2. 核心：模块加载函数 ====================
-# 注意：此函数通过 source 加载，适用于函数库，不适用于含 exit 的独立脚本
 load_module() {
     local module_name="$1"
     local func_check="$2"
@@ -176,7 +175,6 @@ run_safe() {
 }
 
 # 新增辅助函数：运行独立脚本 (subprocess 模式)
-# 适用于 Smart Git 或 Check Proxy 这类包含 exit 命令的脚本，防止退出主菜单
 run_external_script() {
     local script_name="$1"
     local local_file="${CACHE_DIR}/${script_name}"
@@ -184,13 +182,10 @@ run_external_script() {
 
     echo -ne "📥 下载工具: ${script_name} ... "
     
-    # 强制重新下载或检查缓存
     if curl -s -f -o "$local_file" "$remote_file"; then
          chmod +x "$local_file"
          echo -e "[\033[0;32mOK\033[0m]"
          sleep 0.5
-         
-         # 关键点：使用 bash 在子进程运行，隔离 exit 信号
          bash "$local_file"
     else
          echo -e "[\033[0;31m下载失败\033[0m]"
@@ -199,7 +194,23 @@ run_external_script() {
     fi
 }
 
-# ==================== 3. 脚本初始化流程 ====================
+# ==================== 3. 新增：本地代理启用函数 ====================
+enable_local_proxy() {
+    export http_proxy="http://127.0.0.1:7893"
+    export https_proxy="http://127.0.0.1:7893"
+    export all_proxy="socks5://127.0.0.1:7893"
+    
+    echo -e "----------------------------------------------------"
+    echo -e "${GREEN}✅ 本机代理环境变量已启用${NC}"
+    echo -e "   HTTP/HTTPS: ${CYAN}http://127.0.0.1:7893${NC}"
+    echo -e "   SOCKS5:     ${CYAN}socks5://127.0.0.1:7893${NC}"
+    echo -e "----------------------------------------------------"
+    echo -e "${YELLOW}注意: 此设置仅影响当前脚本内的后续操作(如Docker pull)。${NC}"
+    echo -e "${YELLOW}      退出脚本后，终端环境通常不会保留此设置。${NC}"
+    sleep 1.5
+}
+
+# ==================== 4. 脚本初始化流程 ====================
 
 if [ "$1" == "update" ]; then
     rm -rf "$CACHE_DIR"
@@ -214,10 +225,8 @@ if ! load_module "utils.sh" "sync_proxy_config"; then
     exit 1
 fi
 
-# [调用 utils] 权限检查
 check_root
 
-# [调用 utils] 智能同步代理设置
 if command -v sync_proxy_config &> /dev/null; then
     sync_proxy_config "$PROXY_PREFIX"
 fi
@@ -225,7 +234,7 @@ fi
 echo -e "${GREEN}>>> 系统初始化完成，准备就绪。${NC}"
 sleep 0.5
 
-# ==================== 4. 快捷键管理 ====================
+# ==================== 5. 快捷键管理 ====================
 manage_shortcut() {
     local install_path="/usr/local/bin/linux-toolbox"
     local download_url="${PROXY_PREFIX}${REPO_URL}/main.sh" 
@@ -273,82 +282,87 @@ manage_shortcut() {
     fi
 }
 
-# ==================== 5. 主菜单 ====================
+# ==================== 6. 主菜单 ====================
 while true; do
     clear
     echo -e "${BLUE}====================================================${NC}"
-    echo -e "       🛠️  Armbian/Docker 工具箱 (v3.5 +Git版)"
+    echo -e "       🛠️  Armbian/Docker 工具箱 (v3.7 +Git版)"
     echo -e "${BLUE}====================================================${NC}"
     
+    # --- 新增功能 ---
+    echo -e " ${GREEN}1.${NC} 启用本机代理环境变量 (TProxy辅助)"
+    
     # --- 基础/网络类 ---
-    echo -e " ${GREEN}1.${NC} 安装/管理 DOCKER"
-    echo -e " ${GREEN}2.${NC} BBR 加速管理"
-    echo -e " ${GREEN}3.${NC} 网络/IP设置"
+    echo -e " ${GREEN}2.${NC} 安装/管理 DOCKER"
+    echo -e " ${GREEN}3.${NC} BBR 加速管理"
+    echo -e " ${GREEN}4.${NC} 网络/IP设置"
     
     # --- 备份/清理类 ---
-    echo -e " ${YELLOW}4.${NC} Docker 镜像备份/还原"
-    echo -e " ${YELLOW}5.${NC} 容器智能备份"
-    echo -e " ${YELLOW}6.${NC} 容器智能恢复"
-    echo -e " ${YELLOW}7.${NC} Docker 容器挂载清理"
-    echo -e " ${RED}8.${NC} 彻底清理Docker容器"
-    echo -e " ${GREEN}9.${NC} 磁盘/分区管理"
+    echo -e " ${YELLOW}5.${NC} Docker 镜像备份/还原"
+    echo -e " ${YELLOW}6.${NC} 容器智能备份"
+    echo -e " ${YELLOW}7.${NC} 容器智能恢复"
+    echo -e " ${YELLOW}8.${NC} Docker 容器挂载清理"
+    echo -e " ${RED}9.${NC} 彻底清理Docker容器"
+    echo -e " ${GREEN}10.${NC} 磁盘/分区管理"
     echo -e "${BLUE}----------------------------------------------------${NC}"
     
     # --- 核心/高级功能类 ---
-    echo -e " ${CYAN}10.${NC} 代理工具及类型检测"
-    echo -e " ${CYAN}11.${NC} Git智能助手（Smart Git)"
-    echo -e " ${GREEN}12.${NC} Mihomo (TUN模式)"
-    echo -e " ${GREEN}13.${NC} Mihomo (Tproxy模式)"
-    echo -e " ${GREEN}14.${NC} 网卡流量监控"
-    echo -e " ${GREEN}15.${NC} 安装1panel V2面板"
-    echo -e " ${GREEN}16.${NC} R5C/LED修复"
-    echo -e " ${GREEN}17.${NC} 管理快捷键"
+    echo -e " ${CYAN}11.${NC} 代理工具及类型检测"
+    echo -e " ${CYAN}12.${NC} Git智能助手（Smart Git)"
+    echo -e " ${GREEN}13.${NC} Mihomo (TUN模式)"
+    echo -e " ${GREEN}14.${NC} Mihomo (Tproxy模式)"
+    echo -e " ${GREEN}15.${NC} 网卡流量监控"
+    echo -e " ${GREEN}16.${NC} 安装1panel V2面板"
+    echo -e " ${GREEN}17.${NC} R5C/LED修复"
+    echo -e " ${GREEN}18.${NC} 管理快捷键"
     
     echo -e "${BLUE}----------------------------------------------------${NC}"
     echo -e " ${GREEN}0.${NC} 退出脚本"
     echo
     
-    read -p "请输入选项 [0-17]: " choice < /dev/tty
+    read -p "请输入选项 [0-18]: " choice < /dev/tty
 
     case "$choice" in
-        1) run_safe "docker_install.sh" "module_docker_install" ;;
-        2) run_safe "bbr.sh"            "module_bbr" ;;
-        3) run_safe "network.sh"        "module_netmgr" ;;
+        1) enable_local_proxy ;;
         
-        4) run_safe "docker_image.sh"   "module_docker_image_tool" ;;
-        5) run_safe "backup.sh"         "module_backup" ;;
-        6) run_safe "restore.sh"        "module_restore_smart" ;;
-        7) run_safe "mount_clean.sh"    "module_mount_cleaner" ;;
-        8) run_safe "docker_clean.sh"   "module_clean_docker" ;;
-        9) run_safe "disk.sh"           "module_disk_manager" ;;
+        2) run_safe "docker_install.sh" "module_docker_install" ;;
+        3) run_safe "bbr.sh"            "module_bbr" ;;
+        4) run_safe "network.sh"        "module_netmgr" ;;
         
-        10) run_external_script "check_proxy_status.sh" ;;
-        11) run_external_script "Smart_Git_V7.sh" ;;
-        12) 
+        5) run_safe "docker_image.sh"   "module_docker_image_tool" ;;
+        6) run_safe "backup.sh"         "module_backup" ;;
+        7) run_safe "restore.sh"        "module_restore_smart" ;;
+        8) run_safe "mount_clean.sh"    "module_mount_cleaner" ;;
+        9) run_safe "docker_clean.sh"   "module_clean_docker" ;;
+        10) run_safe "disk.sh"           "module_disk_manager" ;;
+        
+        11) run_external_script "check_proxy_status.sh" ;;
+        12) run_external_script "Smart_Git_V7.sh" ;;
+        13) 
            # [Mihomo TUN]
            sync_mihomo_folder
            if [ $? -eq 0 ]; then
                run_safe "mihomo_tun.sh" "module_mihomo_tun"
            fi
            ;;
-        13) 
+        14) 
            # [Mihomo TProxy]
            sync_mihomo_folder
            if [ $? -eq 0 ]; then
                run_safe "mihomo_tp.sh" "module_mihomo_tp"
            fi
            ;;
-        14) run_safe "monitor.sh"       "module_nic_monitor" ;;
-        15) run_safe "1panel.sh"        "module_1panel" ;;
-        16) run_safe "led.sh"           "module_led_fix" ;;
-        17) manage_shortcut ;;
+        15) run_safe "monitor.sh"       "module_nic_monitor" ;;
+        16) run_safe "1panel.sh"        "module_1panel" ;;
+        17) run_safe "led.sh"           "module_led_fix" ;;
+        18) manage_shortcut ;;
         
         0) exit 0 ;;
         *) echo "无效选项。" ;;
     esac
     
     echo
-    if [ "$choice" != "0" ] && [ "$choice" != "17" ]; then
+    if [ "$choice" != "0" ] && [ "$choice" != "18" ]; then
         read -p "按回车键返回主菜单..." < /dev/tty
     fi
 done
