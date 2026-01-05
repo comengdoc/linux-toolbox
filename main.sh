@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# 模块化加载器 (Loader) - v3.5 (集成 Git 助手版)
+# 模块化加载器 (Loader) - v3.6 (集成代理检测版)
 # ==============================================================================
 
 # [基础配置]
@@ -27,7 +27,7 @@ select_download_channel() {
     echo -e "${BLUE}====================================================${NC}"
     echo -e "检测到您正在初始化工具箱，请选择下载加速通道："
     echo
-    echo -e " ${GREEN}1.${NC} 默认加速 (gh-proxy.com)  ${YELLOW}[推荐国内用户]${NC}"
+    echo -e " ${GREEN}1.${NC} 默认加速 (ghfast.top)  ${YELLOW}[推荐国内用户]${NC}"
     echo -e " ${GREEN}2.${NC} GitHub 直连             ${YELLOW}[适合国外/已挂全局]${NC}"
     echo -e " ${GREEN}3.${NC} 手动输入加速地址        ${YELLOW}[自定义代理]${NC}"
     echo
@@ -38,7 +38,7 @@ select_download_channel() {
 
     case "$net_choice" in
         1)
-            PROXY_PREFIX="https://gh-proxy.com/"
+            PROXY_PREFIX="https://ghfast.top/"
             echo -e "${GREEN}✅ 已选择: 默认加速通道${NC}"
             ;;
         2)
@@ -58,12 +58,12 @@ select_download_channel() {
                 fi
                 echo -e "${GREEN}✅ 已选择: 自定义通道 ($PROXY_PREFIX)${NC}"
             else
-                PROXY_PREFIX="https://gh-proxy.com/"
+                PROXY_PREFIX="https://ghfast.top/"
                 echo -e "${YELLOW}⚠️ 未输入，自动回退到默认加速通道${NC}"
             fi
             ;;
         *)
-            PROXY_PREFIX="https://gh-proxy.com/"
+            PROXY_PREFIX="https://ghfast.top/"
             echo -e "${YELLOW}⚠️ 选项无效，自动使用默认加速通道${NC}"
             ;;
     esac
@@ -176,7 +176,7 @@ run_safe() {
 }
 
 # 新增辅助函数：运行独立脚本 (subprocess 模式)
-# 适用于 Smart Git 这类包含 exit 命令的脚本，防止退出主菜单
+# 适用于 Smart Git 或 Check Proxy 这类包含 exit 命令的脚本，防止退出主菜单
 run_external_script() {
     local script_name="$1"
     local local_file="${CACHE_DIR}/${script_name}"
@@ -184,8 +184,7 @@ run_external_script() {
 
     echo -ne "📥 下载工具: ${script_name} ... "
     
-    # 强制重新下载或检查缓存（这里简化为若不存在则下载，或者每次覆盖）
-    # 为了保证 Git 工具最新，建议加上 -s 检查或允许覆盖
+    # 强制重新下载或检查缓存
     if curl -s -f -o "$local_file" "$remote_file"; then
          chmod +x "$local_file"
          echo -e "[\033[0;32mOK\033[0m]"
@@ -210,7 +209,6 @@ fi
 select_download_channel
 
 # [核心] 加载基础库
-# 如果这一步失败，脚本无法继续，所以这里可以加个判断
 if ! load_module "utils.sh" "sync_proxy_config"; then
     echo -e "${RED}❌ 致命错误: 无法加载 utils.sh 基础库。请检查网络。${NC}"
     exit 1
@@ -220,7 +218,6 @@ fi
 check_root
 
 # [调用 utils] 智能同步代理设置
-# 将 main.sh 选好的 PROXY_PREFIX 传递给 utils，避免重复询问
 if command -v sync_proxy_config &> /dev/null; then
     sync_proxy_config "$PROXY_PREFIX"
 fi
@@ -298,19 +295,20 @@ while true; do
     echo -e "${BLUE}----------------------------------------------------${NC}"
     
     # --- 核心/高级功能类 ---
-    echo -e " ${CYAN}10.${NC} Git智能助手（Smart Git)"
-    echo -e " ${GREEN}11.${NC} Mihomo (TUN模式)"
-    echo -e " ${GREEN}12.${NC} Mihomo (Tproxy模式)"
-    echo -e " ${GREEN}13.${NC} 网卡流量监控"
-    echo -e " ${GREEN}14.${NC} 安装1panel V2面板"
-    echo -e " ${GREEN}15.${NC} R5C/LED修复"
-    echo -e " ${GREEN}16.${NC} 管理快捷键"
+    echo -e " ${CYAN}10.${NC} 代理工具及类型检测"
+    echo -e " ${CYAN}11.${NC} Git智能助手（Smart Git)"
+    echo -e " ${GREEN}12.${NC} Mihomo (TUN模式)"
+    echo -e " ${GREEN}13.${NC} Mihomo (Tproxy模式)"
+    echo -e " ${GREEN}14.${NC} 网卡流量监控"
+    echo -e " ${GREEN}15.${NC} 安装1panel V2面板"
+    echo -e " ${GREEN}16.${NC} R5C/LED修复"
+    echo -e " ${GREEN}17.${NC} 管理快捷键"
     
     echo -e "${BLUE}----------------------------------------------------${NC}"
     echo -e " ${GREEN}0.${NC} 退出脚本"
     echo
     
-    read -p "请输入选项 [0-16]: " choice < /dev/tty
+    read -p "请输入选项 [0-17]: " choice < /dev/tty
 
     case "$choice" in
         1) run_safe "docker_install.sh" "module_docker_install" ;;
@@ -324,32 +322,33 @@ while true; do
         8) run_safe "docker_clean.sh"   "module_clean_docker" ;;
         9) run_safe "disk.sh"           "module_disk_manager" ;;
         
-        10) run_external_script "Smart_Git_V7.sh" ;;
-        11) 
+        10) run_external_script "check_proxy_status.sh" ;;
+        11) run_external_script "Smart_Git_V7.sh" ;;
+        12) 
            # [Mihomo TUN]
            sync_mihomo_folder
            if [ $? -eq 0 ]; then
                run_safe "mihomo_tun.sh" "module_mihomo_tun"
            fi
            ;;
-        12) 
+        13) 
            # [Mihomo TProxy]
            sync_mihomo_folder
            if [ $? -eq 0 ]; then
                run_safe "mihomo_tp.sh" "module_mihomo_tp"
            fi
            ;;
-        13) run_safe "monitor.sh"       "module_nic_monitor" ;;
-        14) run_safe "1panel.sh"        "module_1panel" ;;
-        15) run_safe "led.sh"           "module_led_fix" ;;
-        16) manage_shortcut ;;
+        14) run_safe "monitor.sh"       "module_nic_monitor" ;;
+        15) run_safe "1panel.sh"        "module_1panel" ;;
+        16) run_safe "led.sh"           "module_led_fix" ;;
+        17) manage_shortcut ;;
         
         0) exit 0 ;;
         *) echo "无效选项。" ;;
     esac
     
     echo
-    if [ "$choice" != "0" ] && [ "$choice" != "16" ]; then
+    if [ "$choice" != "0" ] && [ "$choice" != "17" ]; then
         read -p "按回车键返回主菜单..." < /dev/tty
     fi
 done

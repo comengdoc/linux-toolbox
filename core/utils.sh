@@ -60,7 +60,7 @@ function sync_proxy_config() {
 # --- 6. 手动代理配置 (仅在需要时调用) ---
 # 保留此函数，供“网络设置”菜单单独调用，初始化时不自动调用
 function configure_proxy_interactive() {
-    local DEFAULT_PROXY="https://gh-proxy.com/"
+    local DEFAULT_PROXY="https://ghfast.top/"
     
     clear
     echo -e "${BLUE}====================================================${NC}"
