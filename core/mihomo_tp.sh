@@ -361,11 +361,64 @@ EOF
         echo -e "${GREEN}✅ 卸载完成${NC}"
     }
 
+    # ==================== 新增：服务管理子菜单 ====================
+    manage_service() {
+        while true; do
+            echo -e "\n${BLUE}=== Mihomo 服务管理 ===${NC}"
+            echo "1. 启动服务 (Start)"
+            echo "2. 停止服务 (Stop)"
+            echo "3. 重启服务 (Restart)"
+            echo "4. 查看日志 (Logs - 按 Ctrl+C 退出)"
+            echo "0. 返回上级菜单"
+            read -p "请选择: " SVC_OPT < /dev/tty
+
+            case "$SVC_OPT" in
+                1)
+                    echo -e "${BLUE}>>> 正在启动服务...${NC}"
+                    systemctl start mihomo
+                    sleep 1
+                    if systemctl is-active --quiet mihomo; then
+                        echo -e "${GREEN}✅ 服务已成功启动${NC}"
+                    else
+                        echo -e "${RED}❌ 服务启动失败，请查看日志${NC}"
+                    fi
+                    ;;
+                2)
+                    echo -e "${BLUE}>>> 正在停止服务...${NC}"
+                    systemctl stop mihomo
+                    echo -e "${YELLOW}🛑 服务已停止${NC}"
+                    ;;
+                3)
+                    echo -e "${BLUE}>>> 正在重启服务...${NC}"
+                    systemctl restart mihomo
+                    sleep 1
+                    if systemctl is-active --quiet mihomo; then
+                        echo -e "${GREEN}✅ 服务已成功重启${NC}"
+                    else
+                        echo -e "${RED}❌ 服务重启失败，请查看日志${NC}"
+                    fi
+                    ;;
+                4)
+                    echo -e "${GREEN}正在打开实时日志 (查看最后50行)...${NC}"
+                    echo -e "${YELLOW}提示: 按 Ctrl+C 可退出日志界面${NC}"
+                    sleep 1
+                    journalctl -u mihomo -f -n 50
+                    ;;
+                0)
+                    break
+                    ;;
+                *)
+                    echo -e "${RED}无效选择，请重新输入${NC}"
+                    ;;
+            esac
+        done
+    }
+
     echo -e "${GREEN}=== Mihomo TProxy (通用全平台版) ===${NC}"
     echo "1. 刷新内核与网络规则 (含网卡设置)"
     echo "2. 在线安装 (支持 x86 v3)"
     echo "3. 本地/仓库安装"
-    echo "4. 服务管理"
+    echo "4. 服务管理 (启动/停止/日志)"
     echo "5. 卸载"
     echo "0. 返回"
     read -p "选择: " OPT < /dev/tty
@@ -374,7 +427,7 @@ EOF
         1) configure_interface; optimize_sysctl; generate_network_script ;;
         2) install_online ;;
         3) install_local ;;
-        4) systemctl restart mihomo; echo "已重启" ;;
+        4) manage_service ;;
         5) uninstall_mihomo ;;
         0) return ;;
         *) echo "无效选择" ;;
