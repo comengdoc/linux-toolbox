@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-# Linux 本机与 Docker 临时代理工具 (极简合并版)
+# Linux 本机与 Docker 临时代理工具 (支持账号密码认证版)
 # =========================================================
 
 # 颜色定义
@@ -23,7 +23,7 @@ fi
 
 # ==================== 核心功能函数 ====================
 
-# 1. 交互式获取代理地址
+# 1. 交互式获取代理地址 (新增账号密码支持)
 get_proxy_info() {
     echo -e "${BLUE}>>> 请输入代理服务器信息${NC}"
     
@@ -35,8 +35,23 @@ get_proxy_info() {
     read -p "请输入混合/HTTP端口 [默认: $DEFAULT_PORT]: " PROXY_PORT
     PROXY_PORT=${PROXY_PORT:-$DEFAULT_PORT}
 
-    PROXY_URL="http://$PROXY_IP:$PROXY_PORT"
-    SOCKS_URL="socks5://$PROXY_IP:$PROXY_PORT"
+    # --- 新增：账号密码部分 ---
+    echo -e "${YELLOW}提示: 如果代理没有设置账号密码，请直接按回车跳过。${NC}"
+    read -p "请输入代理用户名 (可选): " PROXY_USER
+    
+    AUTH_PREFIX=""
+    if [[ -n "$PROXY_USER" ]]; then
+        # -s 参数使输入的密码不显示在屏幕上
+        read -s -p "请输入代理密码: " PROXY_PASS
+        echo "" # 输入密码后换行
+        # 拼接认证前缀 format: user:pass@
+        AUTH_PREFIX="${PROXY_USER}:${PROXY_PASS}@"
+        echo -e "${GREEN}已添加认证信息。${NC}"
+    fi
+
+    # 拼接最终 URL
+    PROXY_URL="http://${AUTH_PREFIX}${PROXY_IP}:${PROXY_PORT}"
+    SOCKS_URL="socks5://${AUTH_PREFIX}${PROXY_IP}:${PROXY_PORT}"
 }
 
 # 2. 智能切换 Docker 代理 (合并了原来的开启和关闭)
@@ -52,7 +67,7 @@ toggle_docker_proxy() {
     else
         # --- 如果不存在，则执行开启逻辑 ---
         echo -e "\n${BLUE}>>> 检测到 Docker 代理未配置，正在执行【开启】操作...${NC}"
-        get_proxy_info # 获取 IP 端口
+        get_proxy_info # 获取 IP 端口及账号密码
         
         mkdir -p "$DOCKER_DIR"
         cat > "$DOCKER_CONF" <<EOF
@@ -65,6 +80,9 @@ EOF
         systemctl daemon-reload
         systemctl restart docker
         echo -e "${GREEN}✅ Docker 代理已开启！(仅限 pull/build 生效)${NC}"
+        if [[ -n "$PROXY_USER" ]]; then
+            echo -e "${YELLOW}(注: 配置文件中包含明文密码，请注意安全)${NC}"
+        fi
     fi
     read -p "按回车键返回菜单..."
 }
