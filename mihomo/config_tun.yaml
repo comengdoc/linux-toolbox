@@ -3,6 +3,7 @@
 # 必读！！！
 # 注意规则在满足自己需求情况下，尽量做到精简，不要过度复杂，以免影响性能。
 # 跑裸核用户请自行去掉下方控制面板模块的注释。
+
 # 机场订阅
 proxy-providers:
   3in1:
@@ -30,7 +31,7 @@ bind-address: "*"
 ipv6: false
 unified-delay: true
 tcp-concurrent: true
-# interface-name: enp6s18
+# 已修正：移除了错误的 interface-name 参数，直接依赖 tun 模块的 auto-detect-interface
 log-level: warning
 find-process-mode: 'off'
 global-client-fingerprint: chrome
