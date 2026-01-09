@@ -105,13 +105,13 @@ dns:
 # 已修改：仅保留日本、美国和直连
 proxy-groups:
   - {name: 🚀 默认代理, type: select, proxies: [🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
-  - {name: 📹 YouTube, type: select, proxies: [🔯 美国故转, 🔯 日本故转, 🇺🇲 美国节点, 🇯🇵 日本节点, 直连]}
-  - {name: 🍀 Google, type: select, proxies: [🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
-  - {name: 🤖 ChatGPT, type: select, proxies: [🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
-  - {name: 👨🏿‍💻 GitHub, type: select, proxies: [🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
-  - {name: 🐬 OneDrive, type: select, proxies: [🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
-  - {name: 🪟 Microsoft, type: select, proxies: [🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
-  - {name: 📲 Telegram, type: select, proxies: [🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
+  - {name: 📹 YouTube, type: select, proxies: [🚀 默认代理, 🔯 美国故转, 🔯 日本故转, 🇺🇲 美国节点, 🇯🇵 日本节点, 直连]}
+  - {name: 🍀 Google, type: select, proxies: [🚀 默认代理, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
+  - {name: 🤖 ChatGPT, type: select, proxies: [🚀 默认代理, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
+  - {name: 👨🏿‍💻 GitHub, type: select, proxies: [🚀 默认代理, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
+  - {name: 🐬 OneDrive, type: select, proxies: [🚀 默认代理, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
+  - {name: 🪟 Microsoft, type: select, proxies: [🚀 默认代理, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
+  - {name: 📲 Telegram, type: select, proxies: [🚀 默认代理, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
   - {name: 🐟 漏网之鱼, type: select, proxies: [🚀 默认代理, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
   
   # 地区分组 - 仅保留日本和美国
