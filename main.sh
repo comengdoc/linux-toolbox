@@ -296,7 +296,7 @@ while true; do
     echo -e " ${GREEN}13.${NC} Mihomo (TUN模式)"
     echo -e " ${GREEN}14.${NC} Mihomo (Tproxy模式)"
     echo -e " ${GREEN}15.${NC} 网卡流量监控"
-    echo -e " ${GREEN}16.${NC} 1Panel & ShellCrash"
+    echo -e " ${GREEN}16.${NC} 1Panel & ShellCrash & SB-Shell"
     echo -e " ${GREEN}17.${NC} R5C/LED修复"
     echo -e " ${GREEN}18.${NC} 管理快捷键"
     
