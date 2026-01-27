@@ -105,19 +105,21 @@ dns:
 # 出站策略
 # 已修改：仅保留日本、美国和直连
 proxy-groups:
-  - {name: 🚀 默认代理, type: select, proxies: [🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
-  - {name: 📹 YouTube, type: select, proxies: [🚀 默认代理, 🔯 美国故转, 🔯 日本故转, 🇺🇲 美国节点, 🇯🇵 日本节点, 直连]}
-  - {name: 🍀 Google, type: select, proxies: [🚀 默认代理, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
-  - {name: 🤖 ChatGPT, type: select, proxies: [🚀 默认代理, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
-  - {name: 👨🏿‍💻 GitHub, type: select, proxies: [🚀 默认代理, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
-  - {name: 🐬 OneDrive, type: select, proxies: [🚀 默认代理, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
-  - {name: 🪟 Microsoft, type: select, proxies: [🚀 默认代理, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
-  - {name: 📲 Telegram, type: select, proxies: [🚀 默认代理, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
-  - {name: 🐟 漏网之鱼, type: select, proxies: [🚀 默认代理, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
+  - {name: 🚀 默认代理, type: select, proxies: [♻️ 日本自动, ♻️ 美国自动, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
+  - {name: 📹 YouTube, type: select, proxies: [🚀 默认代理, ♻️ 日本自动, ♻️ 美国自动, 🔯 美国故转, 🔯 日本故转, 🇺🇲 美国节点, 🇯🇵 日本节点, 直连]}
+  - {name: 🍀 Google, type: select, proxies: [🚀 默认代理, ♻️ 日本自动, ♻️ 美国自动, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
+  - {name: 🤖 ChatGPT, type: select, proxies: [🚀 默认代理, ♻️ 日本自动, ♻️ 美国自动, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
+  - {name: 👨🏿‍💻 GitHub, type: select, proxies: [🚀 默认代理, ♻️ 日本自动, ♻️ 美国自动, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
+  - {name: 🐬 OneDrive, type: select, proxies: [🚀 默认代理, ♻️ 日本自动, ♻️ 美国自动, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
+  - {name: 🪟 Microsoft, type: select, proxies: [🚀 默认代理, ♻️ 日本自动, ♻️ 美国自动, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
+  - {name: 📲 Telegram, type: select, proxies: [🚀 默认代理, ♻️ 日本自动, ♻️ 美国自动, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
+  - {name: 🐟 漏网之鱼, type: select, proxies: [🚀 默认代理, ♻️ 日本自动, ♻️ 美国自动, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
   
   # 地区分组 - 仅保留日本和美国
+  - {name: ♻️ 日本自动, type: url-test, include-all: true, tolerance: 20, interval: 300, filter: "(?=.*(日|JP|(?i)Japan))^((?!(港|台|韩|新|美)).)*$"}
   - {name: 🔯 日本故转, type: fallback, include-all: true, tolerance: 20, interval: 300, filter: "(?=.*(日|JP|(?i)Japan))^((?!(港|台|韩|新|美)).)*$"}
   - {name: 🇯🇵 日本节点, type: select, include-all: true, filter: "(?=.*(日|JP|(?i)Japan))^((?!(港|台|韩|新|美)).)*$"}
+  - {name: ♻️ 美国自动, type: url-test, include-all: true, tolerance: 20, interval: 300, filter: "(?=.*(美|US|(?i)States|America))^((?!(港|台|日|韩|新)).)*$"}
   - {name: 🔯 美国故转, type: fallback, include-all: true, tolerance: 20, interval: 300, filter: "(?=.*(美|US|(?i)States|America))^((?!(港|台|韩|新|日)).)*$"}
   - {name: 🇺🇲 美国节点, type: select, include-all: true, filter: "(?=.*(美|US|(?i)States|America))^((?!(港|台|韩|新|日)).)*$"}
 
