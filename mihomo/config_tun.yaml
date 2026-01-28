@@ -69,6 +69,7 @@ tun:
   enable: true
   # system/gvisor/mixed
   stack: system
+  # interface-name: placeholder
   dns-hijack: ["any:53", "tcp://any:53"]
   #使用nikki，混入全部不修改的情况，开启接口指定为nikki
   #使用仅内核自行修改下面三项为true
@@ -106,7 +107,9 @@ dns:
       - 223.5.5.5
       - 119.29.29.29
   fake-ip-filter:
-    - "rule-set:private_domain,cn_domain,apple_domain"
+    - "rule-set:private_domain"
+    - "rule-set:cn_domain"
+    - "rule-set:apple_domain"
  
 # 出站策略
 # 已修改：仅保留日本、美国和直连

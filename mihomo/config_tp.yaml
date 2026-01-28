@@ -94,7 +94,9 @@ dns:
       - 223.5.5.5
       - 119.29.29.29
   fake-ip-filter:
-    - "rule-set:private_domain,cn_domain,apple_domain"
+    - "rule-set:private_domain"
+    - "rule-set:cn_domain"
+    - "rule-set:apple_domain"
  
 # 出站策略
 proxy-groups:
