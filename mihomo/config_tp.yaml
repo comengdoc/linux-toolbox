@@ -65,23 +65,32 @@ tun:
   enable: false 
 
 # DNS模块
+# DNS模块
 dns:
   enable: true
-  listen: 0.0.0.0:1053 # 关键：与 iptables 53劫持对应
+  listen: 0.0.0.0:1053
   ipv6: false
   respect-rules: true
   enhanced-mode: fake-ip
-  fake-ip-range: 28.0.0.1/8
+  fake-ip-range: 198.18.0.1/16 # 【已修正】使用标准保留网段
   fake-ip-filter-mode: blacklist
   proxy-server-nameserver:
-      - 119.29.29.29
+    - 119.29.29.29
   direct-nameserver:
     - 223.5.5.5
     - 119.29.29.29
   nameserver:
     - https://8.8.8.8/dns-query
+    - https://1.1.1.1/dns-query
   nameserver-policy:
-    "rule-set:private_domain,cn_domain,apple_domain":
+    # 【已修正】拆分写法，确保生效
+    "rule-set:private_domain":
+      - 223.5.5.5
+      - 119.29.29.29
+    "rule-set:cn_domain":
+      - 223.5.5.5
+      - 119.29.29.29
+    "rule-set:apple_domain":
       - 223.5.5.5
       - 119.29.29.29
   fake-ip-filter:
