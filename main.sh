@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# 模块化加载器 (Loader) - v3.8 (集成独立代理工具版)
+# 模块化加载器 (Loader) - v3.9 (集成Docker命令导出版)
 # ==============================================================================
 
 # [基础配置]
@@ -270,10 +270,10 @@ manage_shortcut() {
 while true; do
     clear
     echo -e "${BLUE}====================================================${NC}"
-    echo -e "       🛠️  Armbian/Docker 工具箱 (v3.8 +Git版)"
+    echo -e "       🛠️  Armbian/Docker 工具箱 (v3.9 +Git版)"
     echo -e "${BLUE}====================================================${NC}"
     
-    # --- 代理管理功能 (已替换) ---
+    # --- 代理管理功能 ---
     echo -e " ${GREEN}1.${NC} 本机/Docker 临时代理工具"
     
     # --- 基础/网络类 ---
@@ -285,26 +285,27 @@ while true; do
     echo -e " ${YELLOW}5.${NC} Docker 镜像备份/还原"
     echo -e " ${YELLOW}6.${NC} 容器智能备份"
     echo -e " ${YELLOW}7.${NC} 容器智能恢复"
-    echo -e " ${YELLOW}8.${NC} Docker 容器挂载清理"
-    echo -e " ${RED}9.${NC} 彻底清理Docker容器"
-    echo -e " ${GREEN}10.${NC} 磁盘/分区管理"
+    echo -e " ${YELLOW}8.${NC} 导出 Docker 运行命令 (RunLike)"  # <--- 新增项
+    echo -e " ${YELLOW}9.${NC} Docker 容器挂载清理"            # <--- 顺延
+    echo -e " ${RED}10.${NC} 彻底清理Docker容器"              # <--- 顺延
+    echo -e " ${GREEN}11.${NC} 磁盘/分区管理"                 # <--- 顺延
     echo -e "${BLUE}----------------------------------------------------${NC}"
     
     # --- 核心/高级功能类 ---
-    echo -e " ${CYAN}11.${NC} 代理工具及类型检测"
-    echo -e " ${CYAN}12.${NC} Git智能助手（Smart Git)"
-    echo -e " ${GREEN}13.${NC} Mihomo (TUN模式)"
-    echo -e " ${GREEN}14.${NC} Mihomo (Tproxy模式)"
-    echo -e " ${GREEN}15.${NC} 网卡流量监控"
-    echo -e " ${GREEN}16.${NC} 1Panel & ShellCrash & SB-Shell"
-    echo -e " ${GREEN}17.${NC} R5C/LED修复"
-    echo -e " ${GREEN}18.${NC} 管理快捷键"
+    echo -e " ${CYAN}12.${NC} 代理工具及类型检测"              # <--- 顺延
+    echo -e " ${CYAN}13.${NC} Git智能助手（Smart Git)"        # <--- 顺延
+    echo -e " ${GREEN}14.${NC} Mihomo (TUN模式)"             # <--- 顺延
+    echo -e " ${GREEN}15.${NC} Mihomo (Tproxy模式)"          # <--- 顺延
+    echo -e " ${GREEN}16.${NC} 网卡流量监控"                  # <--- 顺延
+    echo -e " ${GREEN}17.${NC} 1Panel & ShellCrash & SB-Shell" # <--- 顺延
+    echo -e " ${GREEN}18.${NC} R5C/LED修复"                  # <--- 顺延
+    echo -e " ${GREEN}19.${NC} 管理快捷键"                    # <--- 顺延
     
     echo -e "${BLUE}----------------------------------------------------${NC}"
     echo -e " ${GREEN}0.${NC} 退出脚本"
     echo
     
-    read -p "请输入选项 [0-18]: " choice < /dev/tty
+    read -p "请输入选项 [0-19]: " choice < /dev/tty
 
     case "$choice" in
         1) run_external_script "proxy_tool.sh" ;;
@@ -316,39 +317,44 @@ while true; do
         5) run_safe "docker_image.sh"   "module_docker_image_tool" ;;
         6) run_safe "backup.sh"         "module_backup" ;;
         7) run_safe "restore.sh"        "module_restore_smart" ;;
-        8) run_safe "mount_clean.sh"    "module_mount_cleaner" ;;
-        9) run_safe "docker_clean.sh"   "module_clean_docker" ;;
-        10) run_safe "disk.sh"           "module_disk_manager" ;;
         
-        11) run_external_script "check_proxy_status.sh" ;;
-        12) run_external_script "Smart_Git_V7.sh" ;;
-        13) 
+        # --- 新增功能调用 ---
+        # 假设 core/get_docker_run.sh 中定义的函数名为 docker_run_export
+        # 如果您只是放了独立脚本，请改用 run_external_script "get_docker_run.sh"
+        8) run_safe "get_docker_run.sh" "docker_run_export" ;;
+        
+        # --- 后续功能顺延 ---
+        9) run_safe "mount_clean.sh"    "module_mount_cleaner" ;;
+        10) run_safe "docker_clean.sh"   "module_clean_docker" ;;
+        11) run_safe "disk.sh"           "module_disk_manager" ;;
+        
+        12) run_external_script "check_proxy_status.sh" ;;
+        13) run_external_script "Smart_Git_V7.sh" ;;
+        14) 
            # [Mihomo TUN]
            sync_mihomo_folder
            if [ $? -eq 0 ]; then
                run_safe "mihomo_tun.sh" "module_mihomo_tun"
            fi
            ;;
-        14) 
+        15) 
            # [Mihomo TProxy]
            sync_mihomo_folder
            if [ $? -eq 0 ]; then
                run_safe "mihomo_tp.sh" "module_mihomo_tp"
            fi
            ;;
-        15) run_safe "monitor.sh"       "module_nic_monitor" ;;
-        16) run_safe "1panel.sh"        "module_1panel" ;;
-        17) run_safe "led.sh"           "module_led_fix" ;;
-        18) manage_shortcut ;;
+        16) run_safe "monitor.sh"       "module_nic_monitor" ;;
+        17) run_safe "1panel.sh"        "module_1panel" ;;
+        18) run_safe "led.sh"           "module_led_fix" ;;
+        19) manage_shortcut ;;
         
         0) exit 0 ;;
         *) echo "无效选项。" ;;
     esac
     
     echo
-    if [ "$choice" != "0" ] && [ "$choice" != "18" ]; then
-        # 如果从 proxy_tool.sh 返回，通常不需要按回车，但这里保留以防万一
-        # proxy_tool.sh 内部有 exit 0，会直接退回这里继续循环
+    if [ "$choice" != "0" ] && [ "$choice" != "19" ]; then
         read -p "按回车键返回主菜单..." < /dev/tty
     fi
 done
