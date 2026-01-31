@@ -1,49 +1,50 @@
 #!/bin/bash
-# 模块名称: Docker Run 命令导出工具
+# 模块名称: Docker Run 命令导出工具 (GHCR 云端版)
 # 适配: main.sh v3.9+ (通过 run_safe 调用)
-# 更新: 增加了全量导出到 /root 文件功能
+# 功能: 自动拉取 GHCR 镜像，支持屏幕输出及导出 .txt 文件到当前目录
 
 function docker_run_export() {
-    # --- 1. 定义局部颜色 ---
+    # --- 1. 定义局部变量 ---
     local GREEN='\033[0;32m'
     local BLUE='\033[0;34m'
     local RED='\033[0;31m'
     local YELLOW='\033[1;33m'
     local NC='\033[0m'
+    
+    # [核心修改] 定义您的 GitHub 镜像地址
+    local TARGET_IMAGE="ghcr.io/comengdoc/runlike:main"
 
     # --- 2. 内部函数定义 ---
     
-    # 检查并构建镜像
-    check_and_build_image() {
-        if [ -z "$(docker images -q runlike 2> /dev/null)" ]; then
-            echo -e "${BLUE}[INFO] 未检测到 runlike 镜像，正在为您自动构建 (适配本机架构)...${NC}"
-            cat > Dockerfile.temp <<EOF
-FROM python:3-alpine
-RUN apk add --no-cache docker-cli
-RUN python3 -m venv /app/venv
-ENV PATH="/app/venv/bin:\$PATH"
-RUN pip3 install runlike
-ENTRYPOINT ["runlike"]
-EOF
-            docker build -t runlike -f Dockerfile.temp .
-            local build_status=$?
-            rm Dockerfile.temp
-            if [ $build_status -eq 0 ]; then
-                echo -e "${GREEN}[SUCCESS] 镜像构建成功！${NC}"
+    # 函数: 检查并拉取镜像 (替代原有的构建逻辑)
+    check_and_pull_image() {
+        # 检查本地是否有该镜像
+        if [ -z "$(docker images -q "$TARGET_IMAGE" 2> /dev/null)" ]; then
+            echo -e "${BLUE}[INFO] 本地未检测到工具镜像，正在从 GitHub 拉取...${NC}"
+            echo -e "${BLUE}>>> 目标: ${GREEN}$TARGET_IMAGE${NC}"
+            
+            if docker pull "$TARGET_IMAGE"; then
+                echo -e "${GREEN}[SUCCESS] 镜像拉取成功！${NC}"
             else
-                echo -e "${RED}[ERROR] 镜像构建失败，请检查网络或 Docker 环境。${NC}"
+                echo -e "${RED}[ERROR] 镜像拉取失败！${NC}"
+                echo -e "${YELLOW}可能原因: 网络无法访问 GitHub 容器仓库。建议开启全局代理或检查网络。${NC}"
                 return 1
             fi
+        else
+            # 只有在调试时才显示，保持界面清爽
+            # echo -e "${GREEN}[INFO] 镜像已就绪。${NC}" 
+            :
         fi
     }
 
-    # 核心获取命令逻辑 (独立出来方便复用)
+    # 函数: 获取纯净命令文本
     get_clean_cmd() {
         local c_name=$1
-        # 获取命令并过滤杂讯
-        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock runlike -p "$c_name" 2>/dev/null | grep -vE 'com.docker.compose|--label|--hostname|--runtime|--workdir'
+        # [核心修改] 使用 TARGET_IMAGE 变量运行容器
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TARGET_IMAGE" -p "$c_name" 2>/dev/null | grep -vE 'com.docker.compose|--label|--hostname|--runtime|--workdir'
     }
 
+    # 函数: 屏幕显示模式 (单个容器)
     generate_command_screen() {
         local container_name=$1
         echo -e "\n${BLUE}====================================================${NC}"
@@ -62,15 +63,18 @@ EOF
 
     # --- 3. 主逻辑执行 ---
 
-    echo -e "${BLUE}=== Docker 启动命令反推工具 ===${NC}"
+    echo -e "${BLUE}=== Docker 启动命令反推工具 (Cloud Edition) ===${NC}"
 
-    check_and_build_image
+    # 1. 检查/拉取镜像
+    check_and_pull_image
     if [ $? -ne 0 ]; then return 1; fi
 
+    # 2. 列出容器
     echo -e "\n${BLUE}--- 当前正在运行的容器 ---${NC}"
     docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
     echo -e "${BLUE}---------------------------${NC}"
 
+    # 3. 交互循环
     while true; do
         echo -e "\n请输入容器名称 (直接回车返回主菜单，输入 ${GREEN}all${NC} 导出所有): "
         read -p "> " input_name
@@ -81,47 +85,40 @@ EOF
         fi
 
         if [ "$input_name" == "all" ]; then
-            # --- [核心修改] 导出到文件的逻辑 ---
-            
-            # 1. 定义文件名 (格式: /root/docker_run_backup_年月日_时分秒.txt)
+            # --- 全量导出模式 ---
             local timestamp=$(date +%Y%m%d_%H%M%S)
-            local output_file="/root/docker_run_backup_${timestamp}.txt"
             
-            echo -e "\n${YELLOW}>>> 正在准备导出所有容器命令...${NC}"
-            echo -e "${BLUE}>>> 目标文件: ${GREEN}$output_file${NC}"
+            # [核心修改] 保存到当前执行脚本的目录 (${PWD})，而不是 /root
+            # 这样您在哪里运行脚本，文件就在哪里，方便查找
+            local output_file="${PWD}/docker_run_backup_${timestamp}.txt"
             
-            # 2. 写入文件头
+            echo -e "\n${YELLOW}>>> 正在批量导出...${NC}"
+            
+            # 写入文件头
             echo "# Docker Run Commands Backup" > "$output_file"
             echo "# Generated Time: $(date)" >> "$output_file"
+            echo "# Generator Image: $TARGET_IMAGE" >> "$output_file"
             echo "# ----------------------------------------" >> "$output_file"
             
-            # 3. 循环处理
             local containers=$(docker ps --format "{{.Names}}")
             for c in $containers; do
                 echo -e "正在处理: ${GREEN}$c${NC} ..."
-                
-                # 获取命令
                 local cmd=$(get_clean_cmd "$c")
                 
                 if [ -n "$cmd" ]; then
-                    # 写入文件 (追加模式)
                     echo "" >> "$output_file"
                     echo "### Container: $c ###" >> "$output_file"
                     echo "$cmd" >> "$output_file"
-                    echo "" >> "$output_file" # 空行分隔
                 else
-                    echo -e "${RED}[WARN] 获取 $c 失败${NC}"
                     echo "# [ERROR] Failed to get command for $c" >> "$output_file"
                 fi
             done
             
             echo -e "\n${GREEN}[SUCCESS] 导出完成！${NC}"
             echo -e "文件已保存至: ${YELLOW}$output_file${NC}"
-            echo -e "您可以使用 'cat $output_file' 查看内容。"
-            
             read -p "按任意键继续..."
         else
-            # 单个容器还是直接显示在屏幕上
+            # --- 单个查看模式 ---
             generate_command_screen "$input_name"
         fi
     done
