@@ -69,7 +69,7 @@ tun:
   enable: true
   # system/gvisor/mixed
   stack: system
-  # interface-name: placeholder
+  # 脚本会自动在文件开头管理 interface-name，此处保持缺省
   dns-hijack: ["any:53", "tcp://any:53"]
   #使用nikki，混入全部不修改的情况，开启接口指定为nikki
   #使用仅内核自行修改下面三项为true
