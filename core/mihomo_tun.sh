@@ -1,15 +1,12 @@
 #!/bin/bash
 
 # =========================================================
-# Mihomo 终极融合版 (通用架构适配 Pro)
-# 适用设备: R5C / N1 / 树莓派 / x86物理机 / PVE虚拟机
-# 核心功能:
-# 1. TUN 模式防环路 + NAT 自动管理
-# 2. 智能 RPS: 自动识别 CPU 核数并计算掩码
-# 3. 架构自适应: 支持 ARM64, ARMv7, x86_64 (含 v3 版)
-# 4. 修复局域网 DNS 问题 (手动劫持 53 -> 1053)
-# 5. 【修复】网卡绑定冲突逻辑：手动指定时自动关闭 auto-detect
-# 6. 【修复】RPS/硬件优化重启失效问题：持久化至规则脚本
+# Mihomo 终极融合版 (R5C 性能持久化加固版)
+# 适用设备: 友善 R5C / Armbian
+# 特性: 
+# 1. 自动注入 rc.local，解决重启后 RPS 优化失效导致的网速掉速
+# 2. 增强多队列负载均衡，突破 R5C 单核转发瓶颈
+# 3. 包含完整的服务管理与一键卸载功能
 # =========================================================
 
 # 定义颜色
@@ -20,17 +17,16 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 function module_mihomo_tun() {
-    # 定义路径
+    # 路径定义
     AUTO_DIR="/tmp/mihomo"
     MANUAL_DIR="/root/mihomo"
     CONF_DIR="/etc/mihomo"
     BIN_PATH="/usr/local/bin/mihomo"
     RULE_SCRIPT="/usr/local/bin/mihomo-rules.sh"
 
-    # ==================== 0. 内核优化 (持久化) ====================
+    # ==================== 0. 内核与硬件优化 (深度持久化) ====================
     optimize_sysctl() {
-        echo -e "${BLUE}>>> 正在应用系统内核优化 (sysctl 持久化)...${NC}"
-        
+        echo -e "${BLUE}>>> 正在应用系统内核优化 (持久化模式)...${NC}"
         cat > /etc/sysctl.d/99-mihomo-fusion.conf <<EOF
 net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1
@@ -46,13 +42,23 @@ net.core.wmem_default=262144
 EOF
         sysctl --system >/dev/null 2>&1
         generate_network_script
+        
+        # 注入 rc.local 解决重启失效
+        if [ ! -f /etc/rc.local ]; then
+            echo -e '#!/bin/sh -e\nexit 0' > /etc/rc.local
+            chmod +x /etc/rc.local
+        fi
+        if ! grep -q "$RULE_SCRIPT start" /etc/rc.local; then
+            sed -i "/^exit 0/i $RULE_SCRIPT start" /etc/rc.local
+            echo -e "${GREEN}✅ 已注入 rc.local，开机自动提速已激活${NC}"
+        fi
+
         $RULE_SCRIPT start
-        echo -e "${GREEN}✅ 内核优化及网卡硬件参数已刷新并持久化${NC}"
+        echo -e "${GREEN}✅ 硬件性能优化已刷新${NC}"
     }
 
-    # ==================== 辅助：网络保障脚本 (包含硬件优化持久化) ====================
+    # ==================== 辅助：网络保障脚本 (增强多队列支持) ====================
     generate_network_script() {
-        echo -e "${BLUE}>>> 正在同步网络规则脚本 (${RULE_SCRIPT})...${NC}"
         local CPU_COUNT=$(nproc)
         local RPS_MASK=$(printf '%x' $(( (1 << CPU_COUNT) - 1 )))
 
@@ -61,11 +67,12 @@ EOF
 IFACE=\$(ip route show default | awk '/default/ {print \$5}' | head -n1)
 
 apply_hardware_opt() {
-    echo "  - [Hardware] 正在应用 RPS 掩码 ($RPS_MASK) 及硬件优化..."
+    sleep 3
     for iface in \$(ls /sys/class/net | grep -vE "^(lo|tun|docker|veth|cali|flannel|cni|dummy|kube)"); do
-        if [ -f "/sys/class/net/\$iface/queues/rx-0/rps_cpus" ]; then
-            echo "$RPS_MASK" > "/sys/class/net/\$iface/queues/rx-0/rps_cpus" 2>/dev/null
-        fi
+        # 遍历所有接收队列，确保 R5C 所有核心参与转发
+        for rps_file in /sys/class/net/\$iface/queues/rx-*/rps_cpus; do
+            [ -f "\$rps_file" ] && echo "$RPS_MASK" > "\$rps_file" 2>/dev/null
+        done
         if command -v ethtool >/dev/null 2>&1; then
              ethtool -K "\$iface" gro off lro off >/dev/null 2>&1
         fi
@@ -74,29 +81,21 @@ apply_hardware_opt() {
 
 enable_nat() {
     apply_hardware_opt
-    echo "  - [Network] 正在应用网络规则 (NAT + DNS劫持)..."
     sysctl -w net.ipv4.ip_forward=1 >/dev/null
-    sysctl -w net.ipv4.conf.all.src_valid_mark=1 >/dev/null
     iptables -P FORWARD ACCEPT
     if [ -n "\$IFACE" ]; then
         iptables -t nat -C POSTROUTING -o "\$IFACE" -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o "\$IFACE" -j MASQUERADE
     fi
+    # DNS 劫持
     iptables -t nat -D PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 1053 2>/dev/null
-    iptables -t nat -D PREROUTING -p tcp --dport 53 -j REDIRECT --to-ports 1053 2>/dev/null
     iptables -t nat -A PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 1053
-    iptables -t nat -A PREROUTING -p tcp --dport 53 -j REDIRECT --to-ports 1053
-}
-
-disable_nat() {
-    echo "  - [Network] 清理网络规则..."
-    iptables -t nat -D PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 1053 2>/dev/null
     iptables -t nat -D PREROUTING -p tcp --dport 53 -j REDIRECT --to-ports 1053 2>/dev/null
+    iptables -t nat -A PREROUTING -p tcp --dport 53 -j REDIRECT --to-ports 1053
 }
 
 case "\$1" in
     start) enable_nat ;;
-    stop) disable_nat ;;
-    restart) disable_nat; sleep 1; enable_nat ;;
+    stop) iptables -t nat -F PREROUTING ;;
 esac
 EOF
         chmod +x "$RULE_SCRIPT"
@@ -104,7 +103,7 @@ EOF
 
     # ==================== 网卡选择交互函数 ====================
     configure_interface() {
-        echo -e "${BLUE}>>> 正在配置出口网卡绑定...${NC}"
+        echo -e "${BLUE}>>> 配置出口网卡绑定...${NC}"
         INTERFACES=$(ls /sys/class/net | grep -vE "^(lo|tun|docker|veth|cali|flannel|cni|dummy)")
         [ -d "/sys/class/net/br-lan" ] && INTERFACES="br-lan $(echo "$INTERFACES" | sed 's/br-lan//g')"
         IFACE_LIST=($INTERFACES "自动检测(Auto)")
@@ -122,80 +121,46 @@ EOF
         done
     }
 
-    # ==================== 服务配置 ====================
+    # ==================== 服务部署 ====================
     setup_service() {
-        echo -e "${BLUE}>>> 部署 Systemd 服务...${NC}"
         mkdir -p "$CONF_DIR"
         generate_network_script
         [ ! -f "$CONF_DIR/config.yaml" ] && ([ -f "$AUTO_DIR/config_tun.yaml" ] && cp "$AUTO_DIR/config_tun.yaml" "$CONF_DIR/config.yaml" || cp "$MANUAL_DIR/config_tun.yaml" "$CONF_DIR/config.yaml" 2>/dev/null)
         configure_interface
-
         cat > /etc/systemd/system/mihomo.service <<EOF
 [Unit]
-Description=mihomo Daemon (TUN Mode & Optimized)
-After=network-online.target time-sync.target
-Wants=network-online.target time-sync.target
-
+Description=mihomo Daemon
+After=network-online.target
 [Service]
 Type=simple
-LimitNPROC=500
-LimitNOFILE=1000000
-Environment="GOGC=20"
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
-Restart=always
-RestartSec=5
 ExecStartPre=$RULE_SCRIPT start
 ExecStart=$BIN_PATH -d $CONF_DIR
 ExecStopPost=$RULE_SCRIPT stop
-ExecReload=/bin/kill -HUP \$MAINPID
-
+Restart=always
 [Install]
 WantedBy=multi-user.target
 EOF
-        systemctl daemon-reload
-        systemctl enable mihomo
+        systemctl daemon-reload && systemctl enable mihomo
     }
 
-    # ==================== 在线/本地安装逻辑 ====================
     install_online() {
         local ARCH=$(uname -m)
         local M_ARCH="amd64"
-        [ "$ARCH" == "x86_64" ] && { read -p "1.标准 2.高性能(v3): " c < /dev/tty; [ "$c" == "2" ] && M_ARCH="amd64-v3"; }
         [ "$ARCH" == "aarch64" ] && M_ARCH="arm64"
         [ "$ARCH" == "armv7l" ] && M_ARCH="armv7"
-
         LATEST_VER=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         URL="https://github.com/MetaCubeX/mihomo/releases/download/${LATEST_VER}/mihomo-linux-${M_ARCH}-${LATEST_VER}.gz"
-        
         curl -L -o /tmp/mihomo.gz "https://gh-proxy.com/${URL}" --progress-bar
         gzip -d /tmp/mihomo.gz && mv /tmp/mihomo "$BIN_PATH" && chmod 755 "$BIN_PATH"
         optimize_sysctl
         setup_service
+        echo -e "${GREEN}安装完成！${NC}"
     }
 
-    install_local() {
-        [ -f "$AUTO_DIR/mihomo" ] && SRC="$AUTO_DIR/mihomo" || SRC="$MANUAL_DIR/mihomo"
-        cp "$SRC" "$BIN_PATH" && chmod 755 "$BIN_PATH"
-        optimize_sysctl
-        setup_service
-    }
-
-    # ==================== 卸载 ====================
-    uninstall_mihomo() {
-        read -p "确认卸载？(y/N): " res < /dev/tty
-        [[ "$res" =~ ^[Yy]$ ]] || return
-        systemctl disable --now mihomo 2>/dev/null
-        rm -f "$RULE_SCRIPT" "$BIN_PATH" /etc/systemd/system/mihomo.service
-        rm -rf "$CONF_DIR"
-        systemctl daemon-reload
-        echo "卸载完成。"
-    }
-
-    # ==================== 菜单逻辑 ====================
+    # ==================== 菜单逻辑 (含管理与卸载) ====================
     clear
-    echo -e "${GREEN}=== Mihomo 安装向导 (R5C 优化版) ===${NC}"
-    echo "1. 手动应用内核优化 (持久化硬件参数)"
+    echo -e "${GREEN}=== Mihomo 安装向导 (R5C 最终修复版) ===${NC}"
+    echo "1. 手动应用内核优化 (修复重启掉速问题)"
     echo "2. 在线安装"
     echo "3. 部署仓库/本地版本"
     echo "4. 服务管理 (启动/停止/重启/日志)"
@@ -206,19 +171,37 @@ EOF
     case "$OPT" in
         1) optimize_sysctl ;;
         2) install_online ;;
-        3) install_local ;;
-        4)
-            echo "1.启动 2.停止 3.重启 4.日志"
-            read -p "选择: " s < /dev/tty
-            [ "$s" == "1" ] && systemctl start mihomo
-            [ "$s" == "2" ] && systemctl stop mihomo
-            [ "$s" == "3" ] && systemctl restart mihomo
-            [ "$s" == "4" ] && journalctl -u mihomo -f
+        3) 
+            [ -f "$AUTO_DIR/mihomo" ] && SRC="$AUTO_DIR/mihomo" || SRC="$MANUAL_DIR/mihomo"
+            cp "$SRC" "$BIN_PATH" && chmod 755 "$BIN_PATH"
+            optimize_sysctl
+            setup_service 
             ;;
-        5) uninstall_mihomo ;;
+        4)
+            echo -e "${YELLOW}--- 服务管理 ---${NC}"
+            echo "1. 启动服务  2. 停止服务  3. 重启服务  4. 查看实时日志"
+            read -p "请选择: " s < /dev/tty
+            case "$s" in
+                1) systemctl start mihomo && echo "已启动" ;;
+                2) systemctl stop mihomo && echo "已停止" ;;
+                3) systemctl restart mihomo && echo "已重启" ;;
+                4) journalctl -u mihomo -f ;;
+            esac
+            ;;
+        5)
+            read -p "确认完全卸载 Mihomo 及其优化配置？(y/N): " res < /dev/tty
+            if [[ "$res" =~ ^[Yy]$ ]]; then
+                systemctl disable --now mihomo 2>/dev/null
+                # 清理 rc.local 注入
+                sed -i "/$RULE_SCRIPT start/d" /etc/rc.local
+                rm -f "$RULE_SCRIPT" "$BIN_PATH" /etc/systemd/system/mihomo.service
+                rm -rf "$CONF_DIR"
+                systemctl daemon-reload
+                echo -e "${RED}卸载完成，系统已还原。${NC}"
+            fi
+            ;;
         0) return ;;
     esac
 }
 
-# 调用函数
 module_mihomo_tun
