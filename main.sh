@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# 模块化加载器 (Loader) - v3.9 (集成Docker命令导出版)
+# 模块化加载器 (Loader) - v4.0 (性能优化版)
 # ==============================================================================
 
 # [基础配置]
@@ -10,11 +10,12 @@ GIT_REPO_URL="https://github.com/comengdoc/linux-toolbox"
 CACHE_DIR="/tmp/toolbox_cache"
 mkdir -p "$CACHE_DIR"
 
-# [颜色定义] (仅保留最基础的，其他交给 utils 管理)
+# [颜色定义]
 BLUE='\033[0;34m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 RED='\033[0;31m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 # ==================== 0. 全局下载通道选择 ====================
@@ -75,6 +76,12 @@ sync_mihomo_folder() {
     local target_dir="/tmp/mihomo"
     local temp_git_dir="/tmp/toolbox_git_temp"
     
+    # --- 优化点：检查本地是否存在，存在则跳过 ---
+    if [ -d "$target_dir" ] && [ "$(ls -A "$target_dir" 2>/dev/null)" ]; then
+        echo -e "${GREEN}✅ Mihomo 资源已在缓存中，跳过同步。${NC}"
+        return 0
+    fi
+
     echo -e "----------------------------------------"
     echo -e "🚀 正在同步 Mihomo 资源 (使用选定通道)..."
 
@@ -174,31 +181,37 @@ run_safe() {
     fi
 }
 
-# 新增辅助函数：运行独立脚本 (subprocess 模式)
+# --- 优化点：增加本地存在判断，避免重复下载 ---
 run_external_script() {
     local script_name="$1"
     local local_file="${CACHE_DIR}/${script_name}"
     local remote_file="${PROXY_PREFIX}${REPO_URL}/core/${script_name}"
 
-    echo -ne "📥 下载工具: ${script_name} ... "
-    
-    if curl -s -f -o "$local_file" "$remote_file"; then
-         chmod +x "$local_file"
-         echo -e "[\033[0;32mOK\033[0m]"
-         sleep 0.5
-         bash "$local_file"
-    else
-         echo -e "[\033[0;31m下载失败\033[0m]"
-         echo -e "${YELLOW}请检查网络或仓库 core 目录是否存在该文件。${NC}"
-         read -p "按回车键返回..." < /dev/tty
+    # 如果文件不存在或为空，则下载
+    if [ ! -s "$local_file" ]; then
+        echo -ne "📥 下载工具: ${script_name} ... "
+        if curl -s -f -o "$local_file" "$remote_file"; then
+             chmod +x "$local_file"
+             echo -e "[\033[0;32mOK\033[0m]"
+        else
+             echo -e "[\033[0;31m下载失败\033[0m]"
+             echo -e "${YELLOW}请检查网络或仓库 core 目录是否存在该文件。${NC}"
+             read -p "按回车键返回..." < /dev/tty
+             return 1
+        fi
     fi
+    
+    # 直接运行本地缓存
+    bash "$local_file"
 }
 
 # ==================== 3. 脚本初始化流程 ====================
 
+# 如果输入 update 参数，强制清理缓存
 if [ "$1" == "update" ]; then
     rm -rf "$CACHE_DIR"
-    echo "缓存已清理..."
+    rm -rf "/tmp/mihomo"
+    echo "缓存已清理，将重新下载..."
 fi
 
 select_download_channel
@@ -270,37 +283,29 @@ manage_shortcut() {
 while true; do
     clear
     echo -e "${BLUE}====================================================${NC}"
-    echo -e "       🛠️  Armbian/Docker 工具箱 (v3.9 +Git版)"
+    echo -e "       🛠️  Armbian/Docker 工具箱 (v4.0 +智能缓存)"
     echo -e "${BLUE}====================================================${NC}"
     
-    # --- 代理管理功能 ---
     echo -e " ${GREEN}1.${NC} 本机/Docker 临时代理工具"
-    
-    # --- 基础/网络类 ---
     echo -e " ${GREEN}2.${NC} 安装/管理 DOCKER"
     echo -e " ${GREEN}3.${NC} BBR 加速管理"
     echo -e " ${GREEN}4.${NC} 网络/IP设置"
-    
-    # --- 备份/清理类 ---
     echo -e " ${YELLOW}5.${NC} Docker 镜像备份/还原"
     echo -e " ${YELLOW}6.${NC} 容器智能备份"
     echo -e " ${YELLOW}7.${NC} 容器智能恢复"
-    echo -e " ${YELLOW}8.${NC} 导出 Docker 运行命令 (RunLike)"  # <--- 新增项
-    echo -e " ${YELLOW}9.${NC} Docker 容器挂载清理"            # <--- 顺延
-    echo -e " ${RED}10.${NC} 彻底清理Docker容器"              # <--- 顺延
-    echo -e " ${GREEN}11.${NC} 磁盘/分区管理"                 # <--- 顺延
+    echo -e " ${YELLOW}8.${NC} 导出 Docker 运行命令 (RunLike)"
+    echo -e " ${YELLOW}9.${NC} Docker 容器挂载清理"
+    echo -e " ${RED}10.${NC} 彻底清理Docker容器"
+    echo -e " ${GREEN}11.${NC} 磁盘/分区管理"
     echo -e "${BLUE}----------------------------------------------------${NC}"
-    
-    # --- 核心/高级功能类 ---
-    echo -e " ${CYAN}12.${NC} 代理工具及类型检测"              # <--- 顺延
-    echo -e " ${CYAN}13.${NC} Git智能助手（Smart Git)"        # <--- 顺延
-    echo -e " ${GREEN}14.${NC} Mihomo (TUN模式)"             # <--- 顺延
-    echo -e " ${GREEN}15.${NC} Mihomo (Tproxy模式)"          # <--- 顺延
-    echo -e " ${GREEN}16.${NC} 网卡流量监控"                  # <--- 顺延
-    echo -e " ${GREEN}17.${NC} 1Panel & ShellCrash & SB-Shell" # <--- 顺延
-    echo -e " ${GREEN}18.${NC} R5C/LED修复"                  # <--- 顺延
-    echo -e " ${GREEN}19.${NC} 管理快捷键"                    # <--- 顺延
-    
+    echo -e " ${CYAN}12.${NC} 代理工具及类型检测"
+    echo -e " ${CYAN}13.${NC} Git智能助手（Smart Git)"
+    echo -e " ${GREEN}14.${NC} Mihomo (TUN模式)"
+    echo -e " ${GREEN}15.${NC} Mihomo (Tproxy模式)"
+    echo -e " ${GREEN}16.${NC} 网卡流量监控"
+    echo -e " ${GREEN}17.${NC} 1Panel & ShellCrash & SB-Shell"
+    echo -e " ${GREEN}18.${NC} R5C/LED修复"
+    echo -e " ${GREEN}19.${NC} 管理快捷键"
     echo -e "${BLUE}----------------------------------------------------${NC}"
     echo -e " ${GREEN}0.${NC} 退出脚本"
     echo
@@ -309,36 +314,25 @@ while true; do
 
     case "$choice" in
         1) run_external_script "proxy_tool.sh" ;;
-        
         2) run_safe "docker_install.sh" "module_docker_install" ;;
         3) run_safe "bbr.sh"            "module_bbr" ;;
         4) run_safe "network.sh"        "module_netmgr" ;;
-        
         5) run_safe "docker_image.sh"   "module_docker_image_tool" ;;
         6) run_safe "backup.sh"         "module_backup" ;;
         7) run_safe "restore.sh"        "module_restore_smart" ;;
-        
-        # --- 新增功能调用 ---
-        # 假设 core/get_docker_run.sh 中定义的函数名为 docker_run_export
-        # 如果您只是放了独立脚本，请改用 run_external_script "get_docker_run.sh"
         8) run_safe "get_docker_run.sh" "docker_run_export" ;;
-        
-        # --- 后续功能顺延 ---
         9) run_safe "mount_clean.sh"    "module_mount_cleaner" ;;
         10) run_safe "docker_clean.sh"   "module_clean_docker" ;;
         11) run_safe "disk.sh"           "module_disk_manager" ;;
-        
         12) run_external_script "check_proxy_status.sh" ;;
         13) run_external_script "Smart_Git_V7.sh" ;;
         14) 
-           # [Mihomo TUN]
            sync_mihomo_folder
            if [ $? -eq 0 ]; then
                run_safe "mihomo_tun.sh" "module_mihomo_tun"
            fi
            ;;
         15) 
-           # [Mihomo TProxy]
            sync_mihomo_folder
            if [ $? -eq 0 ]; then
                run_safe "mihomo_tp.sh" "module_mihomo_tp"
@@ -348,7 +342,6 @@ while true; do
         17) run_safe "1panel.sh"        "module_1panel" ;;
         18) run_safe "led.sh"           "module_led_fix" ;;
         19) manage_shortcut ;;
-        
         0) exit 0 ;;
         *) echo "无效选项。" ;;
     esac
