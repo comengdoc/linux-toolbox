@@ -192,7 +192,7 @@ EOF
     # ==================== 1. 服务配置函数 ====================
     setup_service() {
         echo -e "${BLUE}>>> 配置 Systemd 服务...${NC}"
-        mkdir -p "$CONF_DIR"
+        mkdir -p "$CONF_DIR/ui"
         
         generate_network_script
 
