@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# 模块化加载器 (Loader) - v4.0 (性能优化版)
+# 模块化加载器 (Loader) - v4.1 (R5C专用优化版)
 # ==============================================================================
 
 # [基础配置]
@@ -283,25 +283,27 @@ manage_shortcut() {
 while true; do
     clear
     echo -e "${BLUE}====================================================${NC}"
-    echo -e "       🛠️  Armbian/Docker 工具箱 (v4.0 +智能缓存)"
+    echo -e "       🛠️  Armbian/Docker 工具箱 (v4.1 +R5C优化)"
     echo -e "${BLUE}====================================================${NC}"
     
     echo -e " ${GREEN}1.${NC} 本机/Docker 临时代理工具"
     echo -e " ${GREEN}2.${NC} 安装/管理 DOCKER"
-    echo -e " ${GREEN}3.${NC} BBR 加速管理"
-    echo -e " ${GREEN}4.${NC} 网络/IP设置"
-    echo -e " ${YELLOW}5.${NC} Docker 镜像备份/还原"
-    echo -e " ${YELLOW}6.${NC} 容器智能备份"
-    echo -e " ${YELLOW}7.${NC} 容器智能恢复"
-    echo -e " ${YELLOW}8.${NC} 导出 Docker 运行命令 (RunLike)"
-    echo -e " ${YELLOW}9.${NC} Docker 容器挂载清理"
-    echo -e " ${RED}10.${NC} 彻底清理Docker容器"
-    echo -e " ${GREEN}11.${NC} 磁盘/分区管理"
+    # 原 BBR 选项已移除，以下选项顺延
+    echo -e " ${GREEN}3.${NC} 网络/IP设置"
+    echo -e " ${YELLOW}4.${NC} Docker 镜像备份/还原"
+    echo -e " ${YELLOW}5.${NC} 容器智能备份"
+    echo -e " ${YELLOW}6.${NC} 容器智能恢复"
+    echo -e " ${YELLOW}7.${NC} 导出 Docker 运行命令 (RunLike)"
+    echo -e " ${YELLOW}8.${NC} Docker 容器挂载清理"
+    echo -e " ${RED}9.${NC} 彻底清理Docker容器"
+    echo -e " ${GREEN}10.${NC} 磁盘/分区管理"
+    echo -e " ${CYAN}11.${NC} 代理工具及类型检测"
+    echo -e " ${CYAN}12.${NC} Git智能助手（Smart Git)"
     echo -e "${BLUE}----------------------------------------------------${NC}"
-    echo -e " ${CYAN}12.${NC} 代理工具及类型检测"
-    echo -e " ${CYAN}13.${NC} Git智能助手（Smart Git)"
-    echo -e " ${GREEN}14.${NC} Mihomo (TUN模式)"
+    echo -e " ${CYAN}13.${NC} R5C网络全能优化 (TUN底座) ${RED}[NEW]${NC}"
+    echo -e " ${GREEN}14.${NC} Mihomo安装 (TUN模式)     ${RED}[NEW]${NC}"
     echo -e " ${GREEN}15.${NC} Mihomo (Tproxy模式)"
+    echo -e "${BLUE}----------------------------------------------------${NC}"
     echo -e " ${GREEN}16.${NC} 网卡流量监控"
     echo -e " ${GREEN}17.${NC} 1Panel & ShellCrash & SB-Shell"
     echo -e " ${GREEN}18.${NC} R5C/LED修复"
@@ -315,24 +317,27 @@ while true; do
     case "$choice" in
         1) run_external_script "proxy_tool.sh" ;;
         2) run_safe "docker_install.sh" "module_docker_install" ;;
-        3) run_safe "bbr.sh"            "module_bbr" ;;
-        4) run_safe "network.sh"        "module_netmgr" ;;
-        5) run_safe "docker_image.sh"   "module_docker_image_tool" ;;
-        6) run_safe "backup.sh"         "module_backup" ;;
-        7) run_safe "restore.sh"        "module_restore_smart" ;;
-        8) run_safe "get_docker_run.sh" "docker_run_export" ;;
-        9) run_safe "mount_clean.sh"    "module_mount_cleaner" ;;
-        10) run_safe "docker_clean.sh"   "module_clean_docker" ;;
-        11) run_safe "disk.sh"           "module_disk_manager" ;;
-        12) run_external_script "check_proxy_status.sh" ;;
-        13) run_external_script "Smart_Git_V7.sh" ;;
+        # 原3号 BBR 已移除，功能整合进13号
+        3) run_safe "network.sh"        "module_netmgr" ;;
+        4) run_safe "docker_image.sh"   "module_docker_image_tool" ;;
+        5) run_safe "backup.sh"         "module_backup" ;;
+        6) run_safe "restore.sh"        "module_restore_smart" ;;
+        7) run_safe "get_docker_run.sh" "docker_run_export" ;;
+        8) run_safe "mount_clean.sh"    "module_mount_cleaner" ;;
+        9) run_safe "docker_clean.sh"   "module_clean_docker" ;;
+        10) run_safe "disk.sh"           "module_disk_manager" ;;
+        11) run_external_script "check_proxy_status.sh" ;;
+        12) run_external_script "Smart_Git_V7.sh" ;;
+        13) 
+           # 新增：独立网络优化脚本 (无需 sync_mihomo_folder)
+           run_external_script "network_optimize_tun.sh" 
+           ;;
         14) 
-           sync_mihomo_folder
-           if [ $? -eq 0 ]; then
-               run_safe "mihomo_tun.sh" "module_mihomo_tun"
-           fi
+           # 更新：纯净版安装脚本 (无需 sync_mihomo_folder，脚本自带下载)
+           run_external_script "install_mihomo_tun.sh"
            ;;
         15) 
+           # 保持旧版逻辑 (Tproxy可能仍需旧资源)
            sync_mihomo_folder
            if [ $? -eq 0 ]; then
                run_safe "mihomo_tp.sh" "module_mihomo_tp"
