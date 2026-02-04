@@ -1,12 +1,13 @@
 #!/bin/bash
 # =========================================================
-# Mihomo 纯净安装脚本 (R5C 专用适配版)
-# 功能：下载、安装、配置 Systemd 服务 (跟随全局代理)
+# Mihomo 纯净安装脚本 (R5C 适配版)
+# 功能：下载、安装、预创建UI目录、Systemd 服务 (跟随全局代理)
 # =========================================================
 
 # 路径定义
 BIN_PATH="/usr/local/bin/mihomo"
 CONF_DIR="/etc/mihomo"
+UI_DIR="/etc/mihomo/ui"  # [新增] 定义UI目录路径
 SERVICE_FILE="/etc/systemd/system/mihomo.service"
 
 # 颜色定义
@@ -23,10 +24,8 @@ fi
 function install_mihomo() {
     echo -e "${GREEN}>>> 开始安装 Mihomo...${NC}"
     
-    # [新增] 继承 main.sh 的全局代理设置
-    # 如果 GH_PROXY 变量为空，则默认为直连；如果不为空，则使用它
+    # [适配] 继承 main.sh 的全局代理设置
     local PROXY_URL="${GH_PROXY:-}"
-    
     if [ -n "$PROXY_URL" ]; then
         echo -e "🔗 检测到全局加速通道: ${YELLOW}${PROXY_URL}${NC}"
     else
@@ -42,31 +41,24 @@ function install_mihomo() {
         *) echo -e "${RED}不支持的架构: $ARCH${NC}"; exit 1 ;;
     esac
 
-    # 2. 下载最新版 (适配全局代理)
+    # 2. 下载最新版 (适配代理)
     echo "正在获取最新版本信息..."
-    
-    # 动态构建 API URL
     local API_URL="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
-    # 注意：API通常不需要代理前缀，除非网络极差，这里保持直连获取版本号，或者你可以选择给API也加代理
-    
     LATEST_VER=$(curl -s "$API_URL" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    
     if [ -z "$LATEST_VER" ]; then
-        echo -e "${RED}无法获取版本信息，请检查网络连接。${NC}"
+        echo -e "${RED}无法获取版本信息，请检查网络。${NC}"
         exit 1
     fi
     
-    # 动态构建下载 URL (使用 PROXY_URL)
     local GITHUB_URL="https://github.com/MetaCubeX/mihomo/releases/download/${LATEST_VER}/mihomo-linux-${M_ARCH}-${LATEST_VER}.gz"
     local DOWNLOAD_URL="${PROXY_URL}${GITHUB_URL}"
     
     echo "下载版本: $LATEST_VER ($M_ARCH)"
-    echo "下载源: $DOWNLOAD_URL"
-    
     curl -L -o /tmp/mihomo.gz "$DOWNLOAD_URL" --progress-bar
     
-    # 检查下载是否成功
     if [ ! -s /tmp/mihomo.gz ]; then
-        echo -e "${RED}下载失败或文件为空！请检查代理设置。${NC}"
+        echo -e "${RED}核心下载失败！${NC}"
         rm -f /tmp/mihomo.gz
         return 1
     fi
@@ -78,6 +70,14 @@ function install_mihomo() {
     
     # 4. 配置目录准备
     mkdir -p "$CONF_DIR"
+    
+    # [新增] 仅自动创建 UI 空目录，不下载文件
+    if [ ! -d "$UI_DIR" ]; then
+        echo "创建 UI 面板目录..."
+        mkdir -p "$UI_DIR"
+    fi
+
+    # 生成基础配置文件
     if [ ! -f "$CONF_DIR/config.yaml" ]; then
         echo "创建基础配置文件..."
         cat > "$CONF_DIR/config.yaml" <<EOF
@@ -87,7 +87,8 @@ log-level: info
 ipv6: true
 external-controller: 0.0.0.0:9090
 secret: ''
-# 配合网络优化脚本的 DNS 劫持
+external-ui: "$UI_DIR" 
+# 配合 config_tun.yaml 中的 external-ui-url 使用
 dns:
   enable: true
   listen: 0.0.0.0:1053
@@ -128,6 +129,7 @@ EOF
     systemctl enable mihomo
     echo -e "${GREEN}✅ 安装完成！服务已设置为开机自启。${NC}"
     echo "配置文件路径: $CONF_DIR/config.yaml"
+    echo "UI 目录已创建: $UI_DIR"
 }
 
 function manage_menu() {

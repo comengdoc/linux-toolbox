@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# 友善 R5C 全能网络优化脚本 (Tun模式适配版)
+# 友善 R5C 全能网络优化脚本 (Tun模式适配版) - 已修复本机 DNS 问题
 # 功能：整合 Sysctl/BBR/RPS/Ethtool/NAT/DNS劫持，并实现 Systemd 持久化
 # ==============================================================================
 
@@ -106,14 +106,34 @@ fi
 iptables -P FORWARD ACCEPT
 
 # --- C. DNS 劫持 (配合 Mihomo) ---
-# 将所有 53 端口流量劫持到本地 1053 (Mihomo DNS端口)
-# 排除发往本地的流量，防止环路
+# 定义 Mihomo 配置文件中使用的上游直连 DNS (防止死循环)
+# 必须与 config.yaml 中的 direct-nameserver 保持一致
+UPSTREAM_DNS_1="223.5.5.5"
+UPSTREAM_DNS_2="119.29.29.29"
+
+# 1. 清理旧规则 (防止重复叠加)
 iptables -t nat -D PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 1053 2>/dev/null
-iptables -t nat -A PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 1053
 iptables -t nat -D PREROUTING -p tcp --dport 53 -j REDIRECT --to-ports 1053 2>/dev/null
+iptables -t nat -D OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 1053 2>/dev/null
+iptables -t nat -D OUTPUT -p tcp --dport 53 -j REDIRECT --to-ports 1053 2>/dev/null
+# 清理防环路规则
+iptables -t nat -D OUTPUT -d $UPSTREAM_DNS_1 -p udp --dport 53 -j RETURN 2>/dev/null
+iptables -t nat -D OUTPUT -d $UPSTREAM_DNS_2 -p udp --dport 53 -j RETURN 2>/dev/null
+
+# 2. 局域网设备劫持 (PREROUTING 链)
+iptables -t nat -A PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 1053
 iptables -t nat -A PREROUTING -p tcp --dport 53 -j REDIRECT --to-ports 1053
 
-echo "R5C Network Optimized: RPS(Mask:f), Offload(Fixed), NAT($DEFAULT_IFACE), DNS-Hijack(Enabled)"
+# 3. 本机劫持 (OUTPUT 链) - 【关键修复】
+# 3.1 防环路：如果目标是 Mihomo 的上游 DNS，直接放行 (RETURN)，不进行重定向
+iptables -t nat -A OUTPUT -d $UPSTREAM_DNS_1 -p udp --dport 53 -j RETURN
+iptables -t nat -A OUTPUT -d $UPSTREAM_DNS_2 -p udp --dport 53 -j RETURN
+
+# 3.2 劫持：其他所有发往 53 端口的流量重定向到本地 1053
+iptables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 1053
+iptables -t nat -A OUTPUT -p tcp --dport 53 -j REDIRECT --to-ports 1053
+
+echo "R5C Network Optimized: RPS(Mask:f), Offload(Fixed), NAT($DEFAULT_IFACE), DNS-Hijack(LAN+Localhost)"
 EOF
 
 chmod +x "$SCRIPT_PATH"
@@ -133,7 +153,6 @@ Wants=network-online.target
 Type=oneshot
 ExecStart=$SCRIPT_PATH
 RemainAfterExit=yes
-# 允许脚本执行失败不中断系统启动 (虽然脚本本身很健壮)
 SuccessExitStatus=0 1
 
 [Install]
@@ -151,5 +170,6 @@ echo "✅ 优化脚本部署完成！"
 echo "   - 核心: BBR + FQ 已启用"
 echo "   - 硬件: RPS 4核均衡, 关闭 GRO/LRO (适配 Tun)"
 echo "   - 网络: 开启 NAT, 开启 DNS 劫持 (53->1053)"
+echo "   - 修复: 已增加本机 DNS (OUTPUT链) 劫持与防环路保护"
 echo "   - 状态: 已设置为开机自启 (r5c-network.service)"
 echo "-------------------------------------------------------"

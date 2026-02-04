@@ -33,7 +33,6 @@ tcp-concurrent: true
 # 已修正：移除了错误的 interface-name 参数，直接依赖 tun 模块的 auto-detect-interface
 log-level: warning
 find-process-mode: 'off'
-global-client-fingerprint: chrome
 keep-alive-idle: 600
 keep-alive-interval: 15
 profile:
