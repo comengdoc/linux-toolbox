@@ -1,7 +1,7 @@
 #!/bin/bash
 # =========================================================
-# Mihomo 纯净安装脚本 (R5C 专用)
-# 功能：下载、安装、配置 Systemd 服务 (不含网络优化)
+# Mihomo 纯净安装脚本 (R5C 专用适配版)
+# 功能：下载、安装、配置 Systemd 服务 (跟随全局代理)
 # =========================================================
 
 # 路径定义
@@ -12,6 +12,7 @@ SERVICE_FILE="/etc/systemd/system/mihomo.service"
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
 NC='\033[0m'
 
 if [ "$EUID" -ne 0 ]; then
@@ -22,6 +23,16 @@ fi
 function install_mihomo() {
     echo -e "${GREEN}>>> 开始安装 Mihomo...${NC}"
     
+    # [新增] 继承 main.sh 的全局代理设置
+    # 如果 GH_PROXY 变量为空，则默认为直连；如果不为空，则使用它
+    local PROXY_URL="${GH_PROXY:-}"
+    
+    if [ -n "$PROXY_URL" ]; then
+        echo -e "🔗 检测到全局加速通道: ${YELLOW}${PROXY_URL}${NC}"
+    else
+        echo -e "🔗 未检测到加速通道，使用 ${YELLOW}GitHub 直连${NC}"
+    fi
+
     # 1. 架构检测
     ARCH=$(uname -m)
     case "$ARCH" in
@@ -31,20 +42,35 @@ function install_mihomo() {
         *) echo -e "${RED}不支持的架构: $ARCH${NC}"; exit 1 ;;
     esac
 
-    # 2. 下载最新版
+    # 2. 下载最新版 (适配全局代理)
     echo "正在获取最新版本信息..."
-    # 使用 gh-proxy 代理加速下载
-    LATEST_VER=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    
+    # 动态构建 API URL
+    local API_URL="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
+    # 注意：API通常不需要代理前缀，除非网络极差，这里保持直连获取版本号，或者你可以选择给API也加代理
+    
+    LATEST_VER=$(curl -s "$API_URL" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     if [ -z "$LATEST_VER" ]; then
-        echo -e "${RED}无法获取版本信息，请检查网络。${NC}"
+        echo -e "${RED}无法获取版本信息，请检查网络连接。${NC}"
         exit 1
     fi
     
-    DOWNLOAD_URL="https://gh-proxy.com/https://github.com/MetaCubeX/mihomo/releases/download/${LATEST_VER}/mihomo-linux-${M_ARCH}-${LATEST_VER}.gz"
+    # 动态构建下载 URL (使用 PROXY_URL)
+    local GITHUB_URL="https://github.com/MetaCubeX/mihomo/releases/download/${LATEST_VER}/mihomo-linux-${M_ARCH}-${LATEST_VER}.gz"
+    local DOWNLOAD_URL="${PROXY_URL}${GITHUB_URL}"
     
     echo "下载版本: $LATEST_VER ($M_ARCH)"
+    echo "下载源: $DOWNLOAD_URL"
+    
     curl -L -o /tmp/mihomo.gz "$DOWNLOAD_URL" --progress-bar
     
+    # 检查下载是否成功
+    if [ ! -s /tmp/mihomo.gz ]; then
+        echo -e "${RED}下载失败或文件为空！请检查代理设置。${NC}"
+        rm -f /tmp/mihomo.gz
+        return 1
+    fi
+
     # 3. 解压部署
     gzip -d -f /tmp/mihomo.gz
     mv /tmp/mihomo "$BIN_PATH"
@@ -79,7 +105,6 @@ EOF
     fi
 
     # 5. 配置 Systemd 服务
-    # 注意：这里不再包含 ExecStartPre 脚本，因为网络优化已独立
     cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=Mihomo Daemon
@@ -89,7 +114,6 @@ After=network.target r5c-network.service
 [Service]
 Type=simple
 User=root
-# 提高文件描述符限制
 LimitNPROC=500
 LimitNOFILE=1000000
 ExecStart=$BIN_PATH -d $CONF_DIR
