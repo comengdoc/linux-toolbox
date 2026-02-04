@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# 模块化加载器 (Loader) - v4.1 (R5C专用优化版)
+# 模块化加载器 (Loader) - v4.2 (R5C专用优化版)
 # ==============================================================================
 
 # [基础配置]
@@ -283,12 +283,11 @@ manage_shortcut() {
 while true; do
     clear
     echo -e "${BLUE}====================================================${NC}"
-    echo -e "       🛠️  Armbian/Docker 工具箱 (v4.1 +R5C优化)"
+    echo -e "       🛠️  Armbian/Docker 工具箱 (v4.2 +R5C优化)"
     echo -e "${BLUE}====================================================${NC}"
     
     echo -e " ${GREEN}1.${NC} 本机/Docker 临时代理工具"
     echo -e " ${GREEN}2.${NC} 安装/管理 DOCKER"
-    # 原 BBR 选项已移除，以下选项顺延
     echo -e " ${GREEN}3.${NC} 网络/IP设置"
     echo -e " ${YELLOW}4.${NC} Docker 镜像备份/还原"
     echo -e " ${YELLOW}5.${NC} 容器智能备份"
@@ -300,24 +299,24 @@ while true; do
     echo -e " ${CYAN}11.${NC} 代理工具及类型检测"
     echo -e " ${CYAN}12.${NC} Git智能助手（Smart Git)"
     echo -e "${BLUE}----------------------------------------------------${NC}"
-    echo -e " ${CYAN}13.${NC} R5C网络全能优化 (TUN底座) ${RED}[NEW]${NC}"
-    echo -e " ${GREEN}14.${NC} Mihomo安装 (TUN模式)     ${RED}[NEW]${NC}"
-    echo -e " ${GREEN}15.${NC} Mihomo (Tproxy模式)"
+    echo -e " ${CYAN}13.${NC} R5C网络全能优化 (TUN底座)"
+    echo -e " ${YELLOW}14.${NC} R5C/Mihomo 全能诊断 (Doctor) ${RED}[NEW]${NC}"
+    echo -e " ${GREEN}15.${NC} Mihomo安装 (TUN模式)     ${RED}[NEW]${NC}"
+    echo -e " ${GREEN}16.${NC} Mihomo (Tproxy模式)"
     echo -e "${BLUE}----------------------------------------------------${NC}"
-    echo -e " ${GREEN}16.${NC} 网卡流量监控"
-    echo -e " ${GREEN}17.${NC} 1Panel & ShellCrash & SB-Shell"
-    echo -e " ${GREEN}18.${NC} R5C/LED修复"
-    echo -e " ${GREEN}19.${NC} 管理快捷键"
+    echo -e " ${GREEN}17.${NC} 网卡流量监控"
+    echo -e " ${GREEN}18.${NC} 1Panel & ShellCrash & SB-Shell"
+    echo -e " ${GREEN}19.${NC} R5C/LED修复"
+    echo -e " ${GREEN}20.${NC} 管理快捷键"
     echo -e "${BLUE}----------------------------------------------------${NC}"
     echo -e " ${GREEN}0.${NC} 退出脚本"
     echo
     
-    read -p "请输入选项 [0-19]: " choice < /dev/tty
+    read -p "请输入选项 [0-20]: " choice < /dev/tty
 
     case "$choice" in
         1) run_external_script "proxy_tool.sh" ;;
         2) run_safe "docker_install.sh" "module_docker_install" ;;
-        # 原3号 BBR 已移除，功能整合进13号
         3) run_safe "network.sh"        "module_netmgr" ;;
         4) run_safe "docker_image.sh"   "module_docker_image_tool" ;;
         5) run_safe "backup.sh"         "module_backup" ;;
@@ -328,31 +327,32 @@ while true; do
         10) run_safe "disk.sh"           "module_disk_manager" ;;
         11) run_external_script "check_proxy_status.sh" ;;
         12) run_external_script "Smart_Git_V7.sh" ;;
-        13) 
-           # 新增：独立网络优化脚本 (无需 sync_mihomo_folder)
-           run_external_script "network_optimize_tun.sh" 
-           ;;
+        13) run_external_script "network_optimize_tun.sh" ;;
         14) 
-           # 更新：纯净版安装脚本 (无需 sync_mihomo_folder，脚本自带下载)
-           run_external_script "install_mihomo_tun.sh"
+           # [新增] 全能诊断脚本
+           run_external_script "r5c_doctor.sh" 
            ;;
         15) 
-           # 保持旧版逻辑 (Tproxy可能仍需旧资源)
+           # [顺延] Mihomo 安装
+           run_external_script "install_mihomo_tun.sh"
+           ;;
+        16) 
+           # [顺延] Tproxy 模式 (需同步资源)
            sync_mihomo_folder
            if [ $? -eq 0 ]; then
                run_safe "mihomo_tp.sh" "module_mihomo_tp"
            fi
            ;;
-        16) run_safe "monitor.sh"       "module_nic_monitor" ;;
-        17) run_safe "1panel.sh"        "module_1panel" ;;
-        18) run_safe "led.sh"           "module_led_fix" ;;
-        19) manage_shortcut ;;
+        17) run_safe "monitor.sh"       "module_nic_monitor" ;;
+        18) run_safe "1panel.sh"        "module_1panel" ;;
+        19) run_safe "led.sh"           "module_led_fix" ;;
+        20) manage_shortcut ;;
         0) exit 0 ;;
         *) echo "无效选项。" ;;
     esac
     
     echo
-    if [ "$choice" != "0" ] && [ "$choice" != "19" ]; then
+    if [ "$choice" != "0" ] && [ "$choice" != "20" ]; then
         read -p "按回车键返回主菜单..." < /dev/tty
     fi
 done
