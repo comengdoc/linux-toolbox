@@ -120,6 +120,10 @@ proxy-groups:
 
 # 规则匹配
 rules:
+  - AND,((NETWORK,UDP),(DST-PORT,443)),REJECT
+  - DOMAIN-KEYWORD,sidestore,🚀 默认代理
+  - DOMAIN-KEYWORD,apple,🚀 默认代理
+  - DOMAIN-SUFFIX,icloud.com,🚀 默认代理
   - RULE-SET,private_ip,直连,no-resolve
   - RULE-SET,private_domain,直连
   - DOMAIN-SUFFIX,qichiyu.com,🚀 默认代理
