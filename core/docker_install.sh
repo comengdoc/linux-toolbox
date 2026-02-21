@@ -1,5 +1,12 @@
 #!/bin/bash
+
 function module_docker_install() {
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[0;33m'
+    BLUE='\033[0;34m'
+    NC='\033[0m'
+
     detect_system() {
         ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m)
         case "$ARCH" in 
@@ -48,17 +55,15 @@ function module_docker_install() {
         for pkg in docker.io docker-doc docker-compose podman-docker containerd runc; do apt-get remove -y $pkg; done
         
         echo ">>> 配置依赖..."
-        apt-get update; apt-get install -y ca-certificates curl gnupg
+        apt-get update; apt-get install -y ca-certificates curl gnupg lsb-release
         mkdir -p /etc/apt/keyrings; rm -f /etc/apt/keyrings/docker.gpg
         
-        echo ">>> 添加阿里云 Docker GPG 密钥..."
-        curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/${TARGET_OS}/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-        
-        # [修改 1] 强制修正 GPG 密钥权限，防止 apt 读取失败
+        echo ">>> 添加官方 Docker GPG 密钥..."
+        curl -fsSL https://download.docker.com/linux/${TARGET_OS}/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
         chmod a+r /etc/apt/keyrings/docker.gpg
         
-        echo ">>> 添加软件源 (OS: $TARGET_OS / Code: $VERSION_CODE)..."
-        echo "deb [arch=$ARCH_TYPE signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/${TARGET_OS} ${VERSION_CODE} stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+        echo ">>> 添加官方软件源 (OS: $TARGET_OS / Code: $VERSION_CODE)..."
+        echo "deb [arch=$ARCH_TYPE signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${TARGET_OS} ${VERSION_CODE} stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
         apt-get update
         
         if [ "$MODE" == "select" ]; then
@@ -98,7 +103,7 @@ function module_docker_install() {
              fi
         else
              echo ">>> 开始安装最新版本..."
-             apt-get install -y --allow-change-held-packages docker-ce docker-ce-cli containerd.io docker-compose-plugin
+             apt-get install -y --allow-change-held-packages docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
         fi
 
         if ! command -v docker &> /dev/null; then
@@ -106,44 +111,38 @@ function module_docker_install() {
             return 1
         fi
 
-        mkdir -p /etc/docker
-        echo -e "\n${BLUE}>>> 🐳 Docker 镜像加速器配置${NC}"
-        echo -e "${YELLOW}提示：由于国内网络原因，建议配置加速器。${NC}"
-        echo "请输入加速器地址 (例如: https://xxxx.mirror.aliyuncs.com)"
-        echo "如果不知道，直接回车将使用【默认公共源】。"
+        echo -e "\n${BLUE}>>> 🐳 应用系统级 Docker 优化配置 (适配透明代理与 15+ 容器并发)${NC}"
         
-        read -p "地址: " USER_MIRROR < /dev/tty
-
-        if [ -n "$USER_MIRROR" ]; then
-            if [[ "$USER_MIRROR" != http* ]]; then USER_MIRROR="https://${USER_MIRROR}"; fi
-            # [修改 2] 用户自定义在前，Daocloud 兜底
-            MIRRORS="[\"$USER_MIRROR\", \"https://docker.m.daocloud.io\"]"
-        else
-            # [修改 2] 调整默认源顺序，优先使用南京大学源 (NJU)，移除不稳定源
-            MIRRORS="[\"https://docker.nju.edu.cn\",\"https://docker.m.daocloud.io\"]"
-        fi
-
-        echo "应用配置..."
+        mkdir -p /etc/docker
         cat > /etc/docker/daemon.json <<EOF
 {
   "log-driver": "json-file",
-  "log-opts": {"max-size": "100m"},
-  "registry-mirrors": $MIRRORS
+  "log-opts": {
+    "max-size": "30m",
+    "max-file": "3"
+  },
+  "storage-driver": "overlay2",
+  "ipv6": false,
+  "default-address-pools": [
+    {
+      "base": "172.17.0.0/16",
+      "size": 24
+    }
+  ]
 }
 EOF
-        systemctl enable docker; systemctl restart docker
-        echo -e "${GREEN}🎉 Docker 安装与配置完成!${NC}"
+        systemctl daemon-reload
+        systemctl enable docker
+        systemctl restart docker
         
-        # [新增] 增加对网络/代理的额外提示
-        echo -e "${YELLOW}💡 提示：如果镜像拉取仍失败，请检查网络或配置 HTTP 代理。${NC}"
-        
-        docker info | grep "Registry Mirrors" -A 3
+        echo -e "${GREEN}🎉 Docker 安装与核心优化配置完成!${NC}"
+        echo -e "${YELLOW}💡 提示：已彻底移除国内无效加速源。本机流量已由透明代理接管，拉取镜像将直接走海外节点加速。${NC}"
     }
 
     detect_system
     echo -e "${GREEN}系统检测: $TARGET_OS ($VERSION_CODE) | 架构: $ARCH_TYPE${NC}"
-    echo "1) 安装/更新 Docker (默认最新版)"
-    echo "2) 安装指定版本 Docker (选择版本)"
+    echo "1) 安装/更新 Docker (默认最新版 + 旁路由专属优化)"
+    echo "2) 安装指定版本 Docker (选择版本 + 旁路由专属优化)"
     echo "3) 卸载 Docker"
     echo "0) 返回主菜单"
     
@@ -155,3 +154,8 @@ EOF
         0) return ;;
     esac
 }
+
+# 仅在此文件作为独立脚本运行时执行
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    module_docker_install
+fi
