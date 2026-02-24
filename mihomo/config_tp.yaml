@@ -1,5 +1,4 @@
-# DNS防泄露版本
-# TProxy 模式 (局域网透明代理专用)
+# DNS防泄露版本 - TProxy 模式 (R5C 旁路由优化版)
 
 # 机场订阅
 proxy-providers:
@@ -22,12 +21,14 @@ port: 7890
 socks-port: 7891
 redir-port: 7892
 mixed-port: 7893
-tproxy-port: 7894  # 关键：与 iptables 规则对应
+tproxy-port: 7894  
 allow-lan: true
 bind-address: "*"
 ipv6: false
 unified-delay: true
 tcp-concurrent: true
+# 【新增】TCP Fast Open 加速握手
+tcp-fast-open: true
 log-level: warning
 find-process-mode: 'off'
 global-client-fingerprint: chrome
@@ -37,7 +38,7 @@ profile:
   store-selected: true
   store-fake-ip: true
 
-# 控制面板 (已开启，方便你管理)
+# 控制面板
 external-controller: 0.0.0.0:9090
 secret: "693132"
 external-ui: "/etc/mihomo/ui"
@@ -47,6 +48,8 @@ external-ui-url: "https://gh-proxy.com/https://github.com/Zephyruso/zashboard/ar
 # 嗅探
 sniffer:
   enable: true
+  # 【新增】纯 IP 嗅探，提升旁路由处理非域名流量的能力
+  parse-pure-ip: true
   sniff:
     HTTP:
       ports: [80, 8080-8880]
@@ -60,11 +63,10 @@ sniffer:
   skip-domain:
     - "+.baidu.com"
 
-# 入站 (Tun 已禁用，专心做 TProxy)
+# 入站 (Tun 已禁用)
 tun:
   enable: false 
 
-# DNS模块
 # DNS模块
 dns:
   enable: true
@@ -72,7 +74,7 @@ dns:
   ipv6: false
   respect-rules: true
   enhanced-mode: fake-ip
-  fake-ip-range: 198.18.0.1/16 # 【已修正】使用标准保留网段
+  fake-ip-range: 198.18.0.1/16 
   fake-ip-filter-mode: blacklist
   proxy-server-nameserver:
     - 119.29.29.29
@@ -83,7 +85,6 @@ dns:
     - https://8.8.8.8/dns-query
     - https://1.1.1.1/dns-query
   nameserver-policy:
-    # 【已修正】拆分写法，确保生效
     "rule-set:private_domain":
       - 223.5.5.5
       - 119.29.29.29
@@ -98,7 +99,7 @@ dns:
     - "rule-set:cn_domain"
     - "rule-set:apple_domain"
  
-# 出站策略
+# 出站策略 (保持你的节点分组)
 proxy-groups:
   - {name: 🚀 默认代理, type: select, proxies: [♻️ 日本自动, ♻️ 美国自动, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
   - {name: 📹 YouTube, type: select, proxies: [🚀 默认代理, ♻️ 日本自动, ♻️ 美国自动, 🔯 美国故转, 🔯 日本故转, 🇺🇲 美国节点, 🇯🇵 日本节点, 直连]}
@@ -110,7 +111,6 @@ proxy-groups:
   - {name: 📲 Telegram, type: select, proxies: [🚀 默认代理, ♻️ 日本自动, ♻️ 美国自动, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
   - {name: 🐟 漏网之鱼, type: select, proxies: [🚀 默认代理, ♻️ 日本自动, ♻️ 美国自动, 🔯 日本故转, 🔯 美国故转, 🇯🇵 日本节点, 🇺🇲 美国节点, 直连]}
   
-  # 地区分组 - 仅保留日本和美国
   - {name: ♻️ 日本自动, type: url-test, include-all: true, tolerance: 20, interval: 300, filter: "(?=.*(日|JP|(?i)Japan))^((?!(港|台|韩|新|美)).)*$"}
   - {name: 🔯 日本故转, type: fallback, include-all: true, tolerance: 20, interval: 300, filter: "(?=.*(日|JP|(?i)Japan))^((?!(港|台|韩|新|美)).)*$"}
   - {name: 🇯🇵 日本节点, type: select, include-all: true, filter: "(?=.*(日|JP|(?i)Japan))^((?!(港|台|韩|新|美)).)*$"}
@@ -118,7 +118,7 @@ proxy-groups:
   - {name: 🔯 美国故转, type: fallback, include-all: true, tolerance: 20, interval: 300, filter: "(?=.*(美|US|(?i)States|America))^((?!(港|台|韩|新|日)).)*$"}
   - {name: 🇺🇲 美国节点, type: select, include-all: true, filter: "(?=.*(美|US|(?i)States|America))^((?!(港|台|韩|新|日)).)*$"}
 
-# 规则匹配
+# 规则匹配 (保持原有逻辑，禁止 UDP 443)
 rules:
   - AND,((NETWORK,UDP),(DST-PORT,443)),REJECT
   - DOMAIN-KEYWORD,sidestore,🚀 默认代理
@@ -144,26 +144,22 @@ rules:
   - RULE-SET,cn_ip,直连
   - MATCH,🐟 漏网之鱼
 
-# 规则集
-rule-anchor:
-  ip: &ip {type: http, interval: 86400, behavior: ipcidr, format: mrs}
-  domain: &domain {type: http, interval: 86400, behavior: domain, format: mrs}
-  class: &class {type: http, interval: 86400, behavior: classical, format: text}
+# 规则集 (保持原有链接)
 rule-providers: 
-  private_domain: { <<: *domain, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/private.mrs"}
-  proxylite: { <<: *class, url: "https://gh-proxy.com/https://raw.githubusercontent.com/qichiyuhub/rule/refs/heads/main/proxy.list"}
-  ai: {  <<: *domain, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ai-!cn.mrs" }
-  youtube_domain: { <<: *domain, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/youtube.mrs"}
-  google_domain: { <<: *domain, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/google.mrs"}
-  github_domain: { <<: *domain, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/github.mrs"}
-  telegram_domain: { <<: *domain, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/telegram.mrs"}
-  onedrive_domain: { <<: *domain, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/onedrive.mrs"}
-  microsoft_domain: { <<: *domain, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/microsoft.mrs"}
-  apple_domain: { <<: *domain, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/apple.mrs"}
-  geolocation-!cn: { <<: *domain, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/geolocation-!cn.mrs"}
-  cn_domain: { <<: *domain, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs"}
-  private_ip: {<<: *ip, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/private.mrs"}
-  cn_ip: { <<: *ip, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs"}
-  google_ip: { <<: *ip, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/google.mrs"}
-  telegram_ip: { <<: *ip, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/telegram.mrs"}
-  apple_ip: { <<: *ip, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo-lite/geoip/apple.mrs"}
+  private_domain: { type: http, interval: 86400, behavior: domain, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/private.mrs"}
+  proxylite: { type: http, interval: 86400, behavior: classical, format: text, url: "https://gh-proxy.com/https://raw.githubusercontent.com/qichiyuhub/rule/refs/heads/main/proxy.list"}
+  ai: { type: http, interval: 86400, behavior: domain, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ai-!cn.mrs" }
+  youtube_domain: { type: http, interval: 86400, behavior: domain, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/youtube.mrs"}
+  google_domain: { type: http, interval: 86400, behavior: domain, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/google.mrs"}
+  github_domain: { type: http, interval: 86400, behavior: domain, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/github.mrs"}
+  telegram_domain: { type: http, interval: 86400, behavior: domain, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/telegram.mrs"}
+  onedrive_domain: { type: http, interval: 86400, behavior: domain, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/onedrive.mrs"}
+  microsoft_domain: { type: http, interval: 86400, behavior: domain, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/microsoft.mrs"}
+  apple_domain: { type: http, interval: 86400, behavior: domain, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/apple.mrs"}
+  geolocation-!cn: { type: http, interval: 86400, behavior: domain, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/geolocation-!cn.mrs"}
+  cn_domain: { type: http, interval: 86400, behavior: domain, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs"}
+  private_ip: {type: http, interval: 86400, behavior: ipcidr, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/private.mrs"}
+  cn_ip: { type: http, interval: 86400, behavior: ipcidr, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs"}
+  google_ip: { type: http, interval: 86400, behavior: ipcidr, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/google.mrs"}
+  telegram_ip: { type: http, interval: 86400, behavior: ipcidr, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/telegram.mrs"}
+  apple_ip: { type: http, interval: 86400, behavior: ipcidr, format: mrs, url: "https://gh-proxy.com/https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta-lite/geoip/apple.mrs"}
