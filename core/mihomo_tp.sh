@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # =========================================================
-# Mihomo TProxy 极智重构跨平台版 (全功能：转发加速 + 本机代理)
-# 适用设备: R5C / N1 / 树莓派 / 通用 x86 Linux (Debian/Ubuntu/CentOS/Arch)
+# Mihomo TProxy 极智重构跨平台版 (R5C/Ophub Armbian 深度优化版)
+# 整合内容：2.5G 吞吐优化 + ICMP 重定向屏蔽 + 内核模块自检
 # =========================================================
 
 RED='\033[0;31m'
@@ -50,6 +50,10 @@ function module_mihomo_tp() {
 
     prepare_env() {
         check_dependencies
+        # 【新增】加载关键内核模块，确保 TProxy 和 Bridge 过滤正常
+        modprobe br_netfilter 2>/dev/null
+        modprobe nf_conntrack 2>/dev/null
+        
         if ! id -u mihomo >/dev/null 2>&1; then
             echo -e "${BLUE}>>> 创建代理专用系统用户: mihomo${NC}"
             useradd -r -s /usr/sbin/nologin mihomo
@@ -58,17 +62,31 @@ function module_mihomo_tp() {
         chown -R mihomo:mihomo "$CONF_DIR"
     }
 
-    # ==================== 1. 内核与硬件优化 ====================
+    # ==================== 1. 内核与硬件深度优化 ====================
     optimize_sysctl() {
-        echo -e "${BLUE}>>> 正在应用系统内核优化...${NC}"
+        echo -e "${BLUE}>>> 正在应用针对 R5C 旁路由环境的深度优化...${NC}"
         cat > /etc/sysctl.d/99-mihomo-fusion.conf <<EOF
+# 核心转发
 net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1
-net.bridge.bridge-nf-call-iptables=1
-net.bridge.bridge-nf-call-ip6tables=1
 net.ipv4.ip_nonlocal_bind=1
-net.ipv4.conf.all.rp_filter=0
-net.ipv4.conf.default.rp_filter=0
+
+# 【关键】旁路由防干扰：禁止 ICMP 重定向，防止主路由 AX6000 干扰路径
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+net.ipv4.conf.all.accept_redirects=0
+net.ipv4.conf.default.accept_redirects=0
+
+# 【关键】2.5G 网卡高吞吐优化：增大接收队列与内核缓存
+net.core.netdev_max_backlog=16384
+net.core.rmem_max=67108864
+net.core.wmem_max=67108864
+net.ipv4.tcp_rmem=4096 87380 67108864
+net.ipv4.tcp_wmem=4096 65536 67108864
+net.ipv4.tcp_mtu_probing=1
+net.ipv4.tcp_fastopen=3
+
+# 性能与 BBR
 net.netfilter.nf_conntrack_max=1048576
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
@@ -85,10 +103,10 @@ EOF
         fi
 
         $RULE_SCRIPT start
-        echo -e "${GREEN}✅ 规则与内核优化已刷新${NC}"
+        echo -e "${GREEN}✅ 深度优化规则已生效 (已禁用 ICMP 重定向)${NC}"
     }
 
-    # ==================== 2. 核心：nftables 本机代理逻辑 ====================
+    # ==================== 2. 核心：nftables 策略逻辑 (保持原有逻辑) ====================
     generate_network_script() {
         echo -e "${BLUE}>>> 生成 nftables 策略管理脚本...${NC}"
         local CPU_COUNT=$(nproc)
@@ -123,50 +141,38 @@ enable_rules() {
     apply_hardware_opt
     get_iface
     
-    # 策略路由 (将 mark 1 流量重定向到回环)
     ip rule add fwmark \$FWMARK lookup \$TABLE 2>/dev/null
     ip route add local 0.0.0.0/0 dev lo table \$TABLE 2>/dev/null
 
     nft add table inet mihomo
     
-    # --- A. 流量分载 (转发加速) 及内核降级兼容 ---
     if nft "add flowtable inet mihomo ft { hook ingress priority 0; devices = { \$IFACE }; }" 2>/dev/null; then
         nft add chain inet mihomo forward "{ type filter hook forward priority 0; policy accept; }"
         nft add rule inet mihomo forward ip protocol { tcp, udp } flow offload @ft
-        # echo "硬件级 Flow Offload 已启用"
     else
-        # echo "当前内核版本不支持 Flow Offload，已平滑降级，仅使用透明代理拦截"
         : 
     fi
 
-    # --- B. 拦截链 (PREROUTING) ---
     nft add chain inet mihomo prerouting "{ type filter hook prerouting priority 0; policy accept; }"
-    
-    # [补丁1] 拦截并拒绝局域网 IPv6 流量，触发 Happy Eyeballs 极速回退 IPv4
     nft add rule inet mihomo prerouting meta nfproto ipv6 reject
-
     nft add rule inet mihomo prerouting ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } return
     nft add rule inet mihomo prerouting tcp flags syn tcp option maxseg size set rt mtudev
     nft add rule inet mihomo prerouting meta l4proto { tcp, udp } tproxy to :\$TPROXY_PORT meta mark set \$FWMARK
 
-    # --- C. 本机代理实现 (OUTPUT) ---
     nft add chain inet mihomo output "{ type route hook output priority 0; policy accept; }"
     nft add rule inet mihomo output ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } return
     nft add rule inet mihomo output skuid mihomo return
     nft add rule inet mihomo output meta l4proto { tcp, udp } meta mark set \$FWMARK
 
-    # --- D. 局域网 DNS 劫持 (PREROUTING NAT) ---
     nft add chain inet mihomo dns_nat "{ type nat hook prerouting priority -100; policy accept; }"
     nft add rule inet mihomo dns_nat udp dport 53 redirect to :\$DNS_PORT
     nft add rule inet mihomo dns_nat tcp dport 53 redirect to :\$DNS_PORT
     
-    # --- E. 本机 DNS 劫持 (OUTPUT NAT) [补丁2] ---
     nft add chain inet mihomo dns_output "{ type nat hook output priority -100; policy accept; }"
     nft add rule inet mihomo dns_output skuid mihomo return
     nft add rule inet mihomo dns_output udp dport 53 redirect to :\$DNS_PORT
     nft add rule inet mihomo dns_output tcp dport 53 redirect to :\$DNS_PORT
 
-    # --- F. VPN 精确 IP 伪装 (POSTROUTING NAT) ---
     nft add chain inet mihomo postrouting "{ type nat hook postrouting priority 100; policy accept; }"
     nft add rule inet mihomo postrouting iifname "wg0" oifname "\$IFACE" masquerade
 }
@@ -245,8 +251,8 @@ EOF
     }
 
     clear
-    echo -e "${GREEN}=== Mihomo TProxy nftables 增强跨平台版 ===${NC}"
-    echo "1. 刷新规则 (Flow Offload + LocalProxy)"
+    echo -e "${GREEN}=== Mihomo TProxy nftables 增强版 (R5C 适配) ===${NC}"
+    echo "1. 刷新规则并优化内核 (Flow Offload + 2.5G Tuned)"
     echo "2. 在线安装 (自动配置用户权限)"
     echo "3. 本地安装 (从 /tmp/mihomo 读取)"
     echo "4. 服务管理"
