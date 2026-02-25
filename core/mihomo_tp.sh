@@ -2,7 +2,7 @@
 
 # =========================================================
 # Mihomo TProxy 极智重构跨平台版 (R5C/Ophub Armbian 深度优化版)
-# 整合内容：2.5G 吞吐优化 + ICMP 重定向屏蔽 + 内核模块自检
+# 优化内容：移除 rc.local 冗余，强化 Systemd 引导逻辑，增加配置校验
 # =========================================================
 
 RED='\033[0;31m'
@@ -50,7 +50,6 @@ function module_mihomo_tp() {
 
     prepare_env() {
         check_dependencies
-        # 【新增】加载关键内核模块，确保 TProxy 和 Bridge 过滤正常
         modprobe br_netfilter 2>/dev/null
         modprobe nf_conntrack 2>/dev/null
         
@@ -71,13 +70,13 @@ net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1
 net.ipv4.ip_nonlocal_bind=1
 
-# 【关键】旁路由防干扰：禁止 ICMP 重定向，防止主路由 AX6000 干扰路径
+# 旁路由防干扰：禁止 ICMP 重定向
 net.ipv4.conf.all.send_redirects=0
 net.ipv4.conf.default.send_redirects=0
 net.ipv4.conf.all.accept_redirects=0
 net.ipv4.conf.default.accept_redirects=0
 
-# 【关键】2.5G 网卡高吞吐优化：增大接收队列与内核缓存
+# 2.5G 网卡高吞吐优化
 net.core.netdev_max_backlog=16384
 net.core.rmem_max=67108864
 net.core.wmem_max=67108864
@@ -94,23 +93,15 @@ EOF
         sysctl --system >/dev/null 2>&1
         generate_network_script
         
-        if [ ! -f /etc/rc.local ]; then
-            echo -e '#!/bin/sh -e\nexit 0' > /etc/rc.local
-            chmod +x /etc/rc.local
-        fi
-        if ! grep -q "$RULE_SCRIPT start" /etc/rc.local; then
-            sed -i "/^exit 0/i $RULE_SCRIPT start" /etc/rc.local
-        fi
-
+        # 移除了原有的 rc.local 写入逻辑，改为仅即时启动规则
         $RULE_SCRIPT start
-        echo -e "${GREEN}✅ 深度优化规则已生效 (已禁用 ICMP 重定向)${NC}"
+        echo -e "${GREEN}✅ 深度优化内核参数已应用并即时生效${NC}"
     }
 
-    # ==================== 2. 核心：nftables 策略逻辑 (保持原有逻辑) ====================
+    # ==================== 2. 核心：nftables 策略逻辑 ====================
     generate_network_script() {
         echo -e "${BLUE}>>> 生成 nftables 策略管理脚本...${NC}"
-        local CPU_COUNT=$(nproc)
-        local RPS_MASK=$(printf '%x' $(( (1 << CPU_COUNT) - 1 )))
+        local RPS_MASK="1" 
 
         cat > "$RULE_SCRIPT" <<EOF
 #!/bin/bash
@@ -149,8 +140,6 @@ enable_rules() {
     if nft "add flowtable inet mihomo ft { hook ingress priority 0; devices = { \$IFACE }; }" 2>/dev/null; then
         nft add chain inet mihomo forward "{ type filter hook forward priority 0; policy accept; }"
         nft add rule inet mihomo forward ip protocol { tcp, udp } flow offload @ft
-    else
-        : 
     fi
 
     nft add chain inet mihomo prerouting "{ type filter hook prerouting priority 0; policy accept; }"
@@ -211,6 +200,9 @@ Group=mihomo
 LimitNPROC=10000
 LimitNOFILE=1000000
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+
+# 核心改进：启动前检查配置文件是否存在，避免无意义的重启循环
+ExecStartPre=/usr/bin/test -f ${CONF_DIR}/config.yaml
 ExecStartPre=$RULE_SCRIPT start
 ExecStart=$BIN_PATH -d $CONF_DIR
 ExecStopPost=$RULE_SCRIPT stop
@@ -222,6 +214,7 @@ WantedBy=multi-user.target
 EOF
         systemctl daemon-reload
         systemctl enable mihomo
+        echo -e "${GREEN}✅ Systemd 服务部署完成${NC}"
     }
 
     # ==================== 4. 安装逻辑 ====================
@@ -239,6 +232,7 @@ EOF
         chown mihomo:mihomo "$BIN_PATH"
         optimize_sysctl
         setup_service
+        echo -e "${YELLOW}请确保已在 $CONF_DIR 内存放 config.yaml 后再启动服务。${NC}"
     }
 
     install_local() {
@@ -248,6 +242,7 @@ EOF
         chown mihomo:mihomo "$BIN_PATH"
         optimize_sysctl
         setup_service
+        echo -e "${YELLOW}请确保已在 $CONF_DIR 内存放 config.yaml 后再启动服务。${NC}"
     }
 
     clear
