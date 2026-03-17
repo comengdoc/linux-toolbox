@@ -124,6 +124,15 @@ apply_hardware_opt() {
     
     # 6. 增大网卡接收队列
     ip link set dev "$IFACE" txqueuelen 5000 2>/dev/null
+
+    # 7. 【优化版】增加初始拥塞窗口 (initcwnd)
+    # 作用：获取真实出口网关，并强制应用 initcwnd 16 优化
+    # 使用 ip route get 1.1.1.1 相比 show default 能更精准地定位主路由网关
+    local GW=$(ip route get 1.1.1.1 | head -n1 | awk '{print $3}')
+    if [ -n "$GW" ]; then
+        # 使用 replace 代替 change，具备幂等性（重复执行不报错），且强制绑定物理网卡
+        ip route replace default via "$GW" dev "$IFACE" initcwnd 16 initrwnd 16
+    fi
 }
 
 enable_rules() {
